@@ -1,0 +1,73 @@
+#ref https://github.com/P3TERX/Actions-OpenWrt/blob/main/.github/workflows/build-openwrt.yml
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+    branches: [ "master" ]
+    inputs:
+      ssh:
+        description: 'ssh connection to actions'
+        required: false
+        default: 'false'
+
+jobs:
+  build:
+    #runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ "ubuntu-20.04" ]
+    permissions:
+      contents: write
+    environment: Online
+
+    steps:
+    # This step references the directory that contains the action.
+    # This step checks out a copy of your repository.
+    - uses: actions/checkout@v3
+      with:
+          # by default, it uses a depth of 1
+          # this fetches all history so that we can read each commit
+          fetch-depth: 0
+          submodules: true
+    
+    - name: where i am
+      run: |
+        sudo timedatectl set-timezone Asia/Shanghai
+        echo -e "workspcace->$GITHUB_WORKSPACE"
+    
+    - name: cmake-configure
+      run: |
+        sudo apt-get install make git zlib1g-dev libssl-dev gperf php-cli cmake g++
+        git submodule update --init --recursive
+        rm -rf bld_
+        mkdir bld_
+        cd bld_
+        cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX:PATH=../tdlib_${{ matrix.os }} ../
+        cmake --build ./ --target install -j$(nproc)
+    
+    - name: tar files
+      run: |
+        cd $GITHUB_WORKSPACE
+        tar -cjvf ./tdlib_${{ matrix.os }}.tar.bz2 ./tdlib_${{ matrix.os }}
+        
+    - name: generate release tag
+      id: tag
+      run: |
+        echo -e "release_tag=$(date +"%Y.%m.%d-%H%M%S")" >> $GITHUB_OUTPUT
+        touch release.txt
+        echo -e "stat=success" >> $GITHUB_OUTPUT
+        
+    - name: push to release
+      uses: softprops/action-gh-release@v1
+      if: steps.tag.outputs.stat == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: $GITHUB_WORKSPACE/tdlib_${{ matrix.os }}.tar.bz2
