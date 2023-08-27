@@ -78,4 +78,4 @@ jobs:
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
-        files: $GITHUB_WORKSPACE/tdlib_${{ matrix.os }}.tar.bz2
+        files: ./tdlib_${{ matrix.os }}.tar.bz2
