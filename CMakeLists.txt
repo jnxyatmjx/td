@@ -6,7 +6,7 @@ if (POLICY CMP0065)
   cmake_policy(SET CMP0065 NEW)
 endif()
 
-project(TDLib VERSION 1.8.16 LANGUAGES CXX C)
+project(TDLib VERSION 1.8.17 LANGUAGES CXX C)
 
 if (NOT DEFINED CMAKE_MODULE_PATH)
   set(CMAKE_MODULE_PATH "")
@@ -427,6 +427,7 @@ set(TDLIB_SOURCE
   td/telegram/net/SessionMultiProxy.cpp
   td/telegram/NewPasswordState.cpp
   td/telegram/NotificationGroupInfo.cpp
+  td/telegram/NotificationGroupType.cpp
   td/telegram/NotificationManager.cpp
   td/telegram/NotificationSettingsScope.cpp
   td/telegram/NotificationSettingsManager.cpp
@@ -722,6 +723,8 @@ set(TDLIB_SOURCE
   td/telegram/NotificationGroupType.h
   td/telegram/NotificationId.h
   td/telegram/NotificationManager.h
+  td/telegram/NotificationObjectFullId.h
+  td/telegram/NotificationObjectId.h
   td/telegram/NotificationSettingsScope.h
   td/telegram/NotificationSettingsManager.h
   td/telegram/NotificationSound.h
@@ -920,7 +923,7 @@ target_link_libraries(tdapi PRIVATE tdutils)
 
 if (TD_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android
   if (NOT JNI_FOUND)
-    find_package(JNI REQUIRED)
+    find_package(JNI REQUIRED COMPONENTS JVM)
   endif()
   message(STATUS "Found JNI: ${JNI_INCLUDE_DIRS} ${JNI_LIBRARIES}")
   target_include_directories(tdapi PUBLIC ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2})

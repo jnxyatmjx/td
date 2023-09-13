@@ -1221,6 +1221,12 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::setDefaultChannelAdministratorRights &request);
 
+  void on_request(uint64 id, const td_api::canBotSendMessages &request);
+
+  void on_request(uint64 id, const td_api::allowBotToSendMessages &request);
+
+  void on_request(uint64 id, td_api::sendWebAppCustomRequest &request);
+
   void on_request(uint64 id, td_api::setBotName &request);
 
   void on_request(uint64 id, const td_api::getBotName &request);
@@ -1282,6 +1288,8 @@ class Td final : public Actor {
   void on_request(uint64 id, td_api::closeSecretChat &request);
 
   void on_request(uint64 id, td_api::getStickers &request);
+
+  void on_request(uint64 id, td_api::getAllStickerEmojis &request);
 
   void on_request(uint64 id, td_api::searchStickers &request);
 
@@ -1621,6 +1629,8 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::getMarkdownText &request);
 
+  void on_request(uint64 id, const td_api::searchStringsByPrefix &request);
+
   void on_request(uint64 id, const td_api::getFileMimeType &request);
 
   void on_request(uint64 id, const td_api::getFileExtension &request);
@@ -1681,6 +1691,7 @@ class Td final : public Actor {
   static td_api::object_ptr<td_api::Object> do_static_request(td_api::parseTextEntities &request);
   static td_api::object_ptr<td_api::Object> do_static_request(td_api::parseMarkdown &request);
   static td_api::object_ptr<td_api::Object> do_static_request(td_api::getMarkdownText &request);
+  static td_api::object_ptr<td_api::Object> do_static_request(td_api::searchStringsByPrefix &request);
   static td_api::object_ptr<td_api::Object> do_static_request(const td_api::getFileMimeType &request);
   static td_api::object_ptr<td_api::Object> do_static_request(const td_api::getFileExtension &request);
   static td_api::object_ptr<td_api::Object> do_static_request(const td_api::cleanFileName &request);

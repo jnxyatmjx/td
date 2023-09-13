@@ -597,9 +597,11 @@ class MessagesManager final : public Actor {
   bool have_dialog_force(DialogId dialog_id, const char *source);
 
   bool have_dialog_info(DialogId dialog_id) const;
-  bool have_dialog_info_force(DialogId dialog_id) const;
+  bool have_dialog_info_force(DialogId dialog_id, const char *source) const;
 
   void reload_dialog_info_full(DialogId dialog_id, const char *source);
+
+  void reload_dialog_notification_settings(DialogId dialog_id, Promise<Unit> &&promise, const char *source);
 
   void on_dialog_info_full_invalidated(DialogId dialog_id);
 
@@ -1300,7 +1302,7 @@ class MessagesManager final : public Actor {
     NotificationGroupInfo mention_notification_group_;
     NotificationId new_secret_chat_notification_id_;  // secret chats only
     MessageId pinned_message_notification_message_id_;
-    MessageId max_notification_message_id_;
+    MessageId max_push_notification_message_id_;
 
     vector<std::pair<DialogId, MessageId>> pending_new_message_notifications_;
     vector<std::pair<DialogId, MessageId>> pending_new_mention_notifications_;
@@ -1706,7 +1708,6 @@ class MessagesManager final : public Actor {
   static constexpr int32 MAX_RECENT_DIALOGS = 50;              // some reasonable value
   static constexpr size_t MAX_TITLE_LENGTH = 128;              // server side limit for chat title
   static constexpr size_t MAX_DESCRIPTION_LENGTH = 255;        // server side limit for chat description
-  static constexpr int32 MAX_PRIVATE_MESSAGE_TTL = 60;         // server side limit
   static constexpr size_t MIN_DELETED_ASYNCHRONOUSLY_MESSAGES = 10;
   static constexpr size_t MAX_UNLOADED_MESSAGES = 5000;
 

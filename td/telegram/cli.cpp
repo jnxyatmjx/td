@@ -3086,6 +3086,12 @@ class CliClient final : public Actor {
       get_args(args, query);
       send_request(td_api::make_object<td_api::getStickers>(as_sticker_type(op), query.query, query.limit,
                                                             op == "gseeme" ? my_id_ : 0));
+    } else if (op == "gaser" || op == "gasem" || op == "gase" || op == "gaseme") {
+      string query;
+      bool return_only_main_emoji;
+      get_args(args, query, return_only_main_emoji);
+      send_request(td_api::make_object<td_api::getAllStickerEmojis>(
+          as_sticker_type(op), query, op == "gaseme" ? my_id_ : 0, return_only_main_emoji));
     } else if (op == "sst" || op == "sstm" || op == "sste") {
       SearchQuery query;
       get_args(args, query);
@@ -3944,6 +3950,14 @@ class CliClient final : public Actor {
           td_api::make_object<td_api::parseTextEntities>(args, td_api::make_object<td_api::textParseModeMarkdown>(2)));
     } else if (op == "ptehs") {
       execute(td_api::make_object<td_api::parseTextEntities>(args, td_api::make_object<td_api::textParseModeHTML>()));
+    } else if (op == "ssbp") {
+      string strings;
+      string query;
+      string limit;
+      bool return_none_for_empty_query;
+      get_args(args, strings, query, limit, return_none_for_empty_query);
+      execute(td_api::make_object<td_api::searchStringsByPrefix>(autosplit_str(strings), query, as_limit(limit),
+                                                                 return_none_for_empty_query));
     } else if (op == "gfmt") {
       execute(td_api::make_object<td_api::getFileMimeType>(trim(args)));
     } else if (op == "gfe") {
@@ -5502,6 +5516,20 @@ class CliClient final : public Actor {
       InputChatPhoto input_chat_photo;
       get_args(args, user_id, input_chat_photo);
       send_request(td_api::make_object<td_api::suggestUserProfilePhoto>(user_id, input_chat_photo));
+    } else if (op == "cbsm") {
+      UserId bot_user_id;
+      get_args(args, bot_user_id);
+      send_request(td_api::make_object<td_api::canBotSendMessages>(bot_user_id));
+    } else if (op == "abtsm") {
+      UserId bot_user_id;
+      get_args(args, bot_user_id);
+      send_request(td_api::make_object<td_api::allowBotToSendMessages>(bot_user_id));
+    } else if (op == "swacr") {
+      UserId bot_user_id;
+      string method;
+      string parameters;
+      get_args(args, bot_user_id, method, parameters);
+      send_request(td_api::make_object<td_api::sendWebAppCustomRequest>(bot_user_id, method, parameters));
     } else if (op == "gbi") {
       UserId bot_user_id;
       string language_code;
