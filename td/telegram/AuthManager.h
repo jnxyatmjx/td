@@ -28,7 +28,9 @@ class AuthManager final : public NetActor {
  public:
   AuthManager(int32 api_id, const string &api_hash, ActorShared<> parent);
 
-  bool is_bot() const;
+  bool is_bot() const {
+    return is_bot_ || net_query_type_ == NetQueryType::BotAuthentication;
+  }
 
   bool is_authorized() const;
   bool was_authorized() const;
@@ -196,6 +198,8 @@ class AuthManager final : public NetActor {
   void send_log_out_query();
   void destroy_auth_keys();
 
+  void on_account_banned() const;
+
   void on_sent_code(telegram_api::object_ptr<telegram_api::auth_SentCode> &&sent_code_ptr);
 
   void on_send_code_result(NetQueryPtr &&net_query);
@@ -215,7 +219,7 @@ class AuthManager final : public NetActor {
 
   void on_result(NetQueryPtr net_query) final;
 
-  void update_state(State new_state, bool force = false, bool should_save_state = true);
+  void update_state(State new_state, bool should_save_state = true);
   tl_object_ptr<td_api::AuthorizationState> get_authorization_state_object(State authorization_state) const;
 
   static void send_ok(uint64 query_id);

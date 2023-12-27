@@ -276,12 +276,14 @@ function split_file($file, $chunks, $undo) {
 
         if (!preg_match('/Td::~?Td/', $new_content)) {  // destructor Td::~Td needs to see definitions of all forward-declared classes
             $td_methods = array(
+                'account_manager[_(-][^.]|AccountManager[^;>]' => "AccountManager",
                 'animations_manager[_(-][^.]|AnimationsManager[^;>]' => "AnimationsManager",
                 'attach_menu_manager[_(-][^.]|AttachMenuManager[^;>]' => "AttachMenuManager",
                 'audios_manager[_(-][^.]|AudiosManager' => "AudiosManager",
                 'auth_manager[_(-][^.]|AuthManager' => 'AuthManager',
                 'autosave_manager[_(-][^.]|AutosaveManager' => 'AutosaveManager',
                 'background_manager[_(-][^.]|BackgroundManager' => "BackgroundManager",
+                'boost_manager[_(-][^.]|BoostManager' => "BoostManager",
                 'bot_info_manager[_(-][^.]|BotInfoManager' => "BotInfoManager",
                 'contacts_manager[_(-][^.]|ContactsManager([^ ;.]| [^*])' => 'ContactsManager',
                 'country_info_manager[_(-][^.]|CountryInfoManager' => 'CountryInfoManager',
@@ -312,6 +314,7 @@ function split_file($file, $chunks, $undo) {
                 'SecretChatActor' => 'SecretChatActor',
                 'secret_chats_manager[_(-]|SecretChatsManager' => 'SecretChatsManager',
                 'sponsored_message_manager[_(-][^.]|SponsoredMessageManager' => 'SponsoredMessageManager',
+                'statistics_manager[_(-][^.]|StatisticsManager' => 'StatisticsManager',
                 'stickers_manager[_(-][^.]|StickersManager' => 'StickersManager',
                 'story_manager[_(-][^.]|StoryManager' => 'StoryManager',
                 '[>](td_db[(][)]|get_td_db_impl[(])|TdDb[^A-Za-z]' => 'TdDb',
@@ -319,6 +322,7 @@ function split_file($file, $chunks, $undo) {
                 'TopDialogCategory|get_top_dialog_category' => 'TopDialogCategory',
                 'top_dialog_manager[_(-][^.]|TopDialogManager' => 'TopDialogManager',
                 'translation_manager[_(-][^.]|TranslationManager' => "TranslationManager",
+                'transcription_manager[_(-][^.]|TranscriptionManager' => "TranscriptionManager",
                 'updates_manager[_(-][^.]|UpdatesManager|get_difference[)]|updateSentMessage|dummyUpdate' => 'UpdatesManager',
                 'WebPageId(Hash)?' => 'WebPageId',
                 'web_pages_manager[_(-][^.]|WebPagesManager' => 'WebPagesManager');

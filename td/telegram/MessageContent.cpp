@@ -6,6 +6,7 @@
 //
 #include "td/telegram/MessageContent.h"
 
+#include "td/telegram/AccessRights.h"
 #include "td/telegram/AnimationsManager.h"
 #include "td/telegram/AnimationsManager.hpp"
 #include "td/telegram/AudiosManager.h"
@@ -14,6 +15,7 @@
 #include "td/telegram/BackgroundInfo.hpp"
 #include "td/telegram/CallDiscardReason.h"
 #include "td/telegram/ChannelId.h"
+#include "td/telegram/ChannelType.h"
 #include "td/telegram/ChatId.h"
 #include "td/telegram/Contact.h"
 #include "td/telegram/ContactsManager.h"
@@ -37,6 +39,8 @@
 #include "td/telegram/ForumTopicManager.h"
 #include "td/telegram/Game.h"
 #include "td/telegram/Game.hpp"
+#include "td/telegram/GiveawayParameters.h"
+#include "td/telegram/GiveawayParameters.hpp"
 #include "td/telegram/Global.h"
 #include "td/telegram/GroupCallManager.h"
 #include "td/telegram/HashtagHints.h"
@@ -62,6 +66,7 @@
 #include "td/telegram/PollId.h"
 #include "td/telegram/PollId.hpp"
 #include "td/telegram/PollManager.h"
+#include "td/telegram/RepliedMessageInfo.h"
 #include "td/telegram/secret_api.hpp"
 #include "td/telegram/SecureValue.h"
 #include "td/telegram/SecureValue.hpp"
@@ -75,6 +80,7 @@
 #include "td/telegram/Td.h"
 #include "td/telegram/telegram_api.h"
 #include "td/telegram/TopDialogManager.h"
+#include "td/telegram/TranscriptionManager.h"
 #include "td/telegram/UserId.h"
 #include "td/telegram/Venue.h"
 #include "td/telegram/Version.h"
@@ -114,9 +120,26 @@ class MessageText final : public MessageContent {
  public:
   FormattedText text;
   WebPageId web_page_id;
+  bool force_small_media = false;
+  bool force_large_media = false;
+  bool skip_web_page_confirmation = false;
+  string web_page_url;
 
   MessageText() = default;
-  MessageText(FormattedText text, WebPageId web_page_id) : text(std::move(text)), web_page_id(web_page_id) {
+  MessageText(FormattedText text, WebPageId web_page_id, bool force_small_media, bool force_large_media,
+              bool skip_web_page_confirmation, string web_page_url)
+      : text(std::move(text))
+      , web_page_id(web_page_id)
+      , force_small_media(force_small_media)
+      , force_large_media(force_large_media)
+      , skip_web_page_confirmation(skip_web_page_confirmation)
+      , web_page_url(std::move(web_page_url)) {
+    if (this->web_page_url.empty()) {
+      this->force_small_media = false;
+      this->force_large_media = false;
+    } else if (this->force_large_media) {
+      this->force_small_media = false;
+    }
   }
 
   MessageContentType get_type() const final {
@@ -475,7 +498,7 @@ class MessageChatSetTtl final : public MessageContent {
 
 class MessageUnsupported final : public MessageContent {
  public:
-  static constexpr int32 CURRENT_VERSION = 19;
+  static constexpr int32 CURRENT_VERSION = 25;
   int32 version = CURRENT_VERSION;
 
   MessageUnsupported() = default;
@@ -904,10 +927,11 @@ class MessageSetBackground final : public MessageContent {
  public:
   MessageId old_message_id;
   BackgroundInfo background_info;
+  bool for_both = false;
 
   MessageSetBackground() = default;
-  MessageSetBackground(MessageId old_message_id, BackgroundInfo background_info)
-      : old_message_id(old_message_id), background_info(std::move(background_info)) {
+  MessageSetBackground(MessageId old_message_id, BackgroundInfo background_info, bool for_both)
+      : old_message_id(old_message_id), background_info(std::move(background_info)), for_both(for_both) {
   }
 
   MessageContentType get_type() const final {
@@ -933,6 +957,69 @@ class MessageWriteAccessAllowedByRequest final : public MessageContent {
  public:
   MessageContentType get_type() const final {
     return MessageContentType::WriteAccessAllowedByRequest;
+  }
+};
+
+class MessageGiftCode final : public MessageContent {
+ public:
+  DialogId creator_dialog_id;
+  int32 months = 0;
+  bool via_giveaway = false;
+  bool is_unclaimed = false;
+  string code;
+
+  MessageGiftCode() = default;
+  MessageGiftCode(DialogId creator_dialog_id, int32 months, bool via_giveaway, bool is_unclaimed, string &&code)
+      : creator_dialog_id(creator_dialog_id)
+      , months(months)
+      , via_giveaway(via_giveaway || is_unclaimed)
+      , is_unclaimed(is_unclaimed)
+      , code(std::move(code)) {
+  }
+
+  MessageContentType get_type() const final {
+    return MessageContentType::GiftCode;
+  }
+};
+
+class MessageGiveaway final : public MessageContent {
+ public:
+  GiveawayParameters giveaway_parameters;
+  int32 quantity = 0;
+  int32 months = 0;
+
+  MessageGiveaway() = default;
+  MessageGiveaway(GiveawayParameters giveaway_parameters, int32 quantity, int32 months)
+      : giveaway_parameters(std::move(giveaway_parameters)), quantity(quantity), months(months) {
+  }
+
+  MessageContentType get_type() const final {
+    return MessageContentType::Giveaway;
+  }
+};
+
+class MessageGiveawayLaunch final : public MessageContent {
+ public:
+  MessageGiveawayLaunch() = default;
+
+  MessageContentType get_type() const final {
+    return MessageContentType::GiveawayLaunch;
+  }
+};
+
+class MessageGiveawayResults final : public MessageContent {
+ public:
+  MessageId giveaway_message_id;
+  int32 winner_count = 0;
+  int32 unclaimed_count = 0;
+
+  MessageGiveawayResults() = default;
+  MessageGiveawayResults(MessageId giveaway_message_id, int32 winner_count, int32 unclaimed_count)
+      : giveaway_message_id(giveaway_message_id), winner_count(winner_count), unclaimed_count(unclaimed_count) {
+  }
+
+  MessageContentType get_type() const final {
+    return MessageContentType::GiveawayResults;
   }
 };
 
@@ -1016,8 +1103,22 @@ static void store(const MessageContent *content, StorerT &storer) {
     }
     case MessageContentType::Text: {
       const auto *m = static_cast<const MessageText *>(content);
+      bool has_web_page_id = m->web_page_id.is_valid();
+      bool has_web_page_url = !m->web_page_url.empty();
+      BEGIN_STORE_FLAGS();
+      STORE_FLAG(has_web_page_id);
+      STORE_FLAG(m->force_small_media);
+      STORE_FLAG(m->force_large_media);
+      STORE_FLAG(has_web_page_url);
+      STORE_FLAG(m->skip_web_page_confirmation);
+      END_STORE_FLAGS();
       store(m->text, storer);
-      store(m->web_page_id, storer);
+      if (has_web_page_id) {
+        store(m->web_page_id, storer);
+      }
+      if (has_web_page_url) {
+        store(m->web_page_url, storer);
+      }
       break;
     }
     case MessageContentType::Unsupported: {
@@ -1321,6 +1422,7 @@ static void store(const MessageContent *content, StorerT &storer) {
       bool has_message_id = m->old_message_id.is_valid();
       BEGIN_STORE_FLAGS();
       STORE_FLAG(has_message_id);
+      STORE_FLAG(m->for_both);
       END_STORE_FLAGS();
       if (has_message_id) {
         store(m->old_message_id, storer);
@@ -1338,6 +1440,53 @@ static void store(const MessageContent *content, StorerT &storer) {
     }
     case MessageContentType::WriteAccessAllowedByRequest:
       break;
+    case MessageContentType::GiftCode: {
+      const auto *m = static_cast<const MessageGiftCode *>(content);
+      bool has_creator_dialog_id = m->creator_dialog_id.is_valid();
+      BEGIN_STORE_FLAGS();
+      STORE_FLAG(m->via_giveaway);
+      STORE_FLAG(has_creator_dialog_id);
+      STORE_FLAG(m->is_unclaimed);
+      END_STORE_FLAGS();
+      if (has_creator_dialog_id) {
+        store(m->creator_dialog_id, storer);
+      }
+      store(m->months, storer);
+      store(m->code, storer);
+      break;
+    }
+    case MessageContentType::Giveaway: {
+      const auto *m = static_cast<const MessageGiveaway *>(content);
+      BEGIN_STORE_FLAGS();
+      END_STORE_FLAGS();
+      store(m->giveaway_parameters, storer);
+      store(m->quantity, storer);
+      store(m->months, storer);
+      break;
+    }
+    case MessageContentType::GiveawayLaunch:
+      break;
+    case MessageContentType::GiveawayResults: {
+      const auto *m = static_cast<const MessageGiveawayResults *>(content);
+      bool has_winner_count = m->winner_count != 0;
+      bool has_unclaimed_count = m->unclaimed_count != 0;
+      bool has_giveaway_message_id = m->giveaway_message_id.is_valid();
+      BEGIN_STORE_FLAGS();
+      STORE_FLAG(has_winner_count);
+      STORE_FLAG(has_unclaimed_count);
+      STORE_FLAG(has_giveaway_message_id);
+      END_STORE_FLAGS();
+      if (has_winner_count) {
+        store(m->winner_count, storer);
+      }
+      if (has_unclaimed_count) {
+        store(m->unclaimed_count, storer);
+      }
+      if (has_giveaway_message_id) {
+        store(m->giveaway_message_id, storer);
+      }
+      break;
+    }
     default:
       UNREACHABLE();
   }
@@ -1466,8 +1615,24 @@ static void parse(unique_ptr<MessageContent> &content, ParserT &parser) {
     }
     case MessageContentType::Text: {
       auto m = make_unique<MessageText>();
+      bool has_web_page_id = true;
+      bool has_web_page_url = false;
+      if (parser.version() >= static_cast<int32>(Version::AddMessageTextFlags)) {
+        BEGIN_PARSE_FLAGS();
+        PARSE_FLAG(has_web_page_id);
+        PARSE_FLAG(m->force_small_media);
+        PARSE_FLAG(m->force_large_media);
+        PARSE_FLAG(has_web_page_url);
+        PARSE_FLAG(m->skip_web_page_confirmation);
+        END_PARSE_FLAGS();
+      }
       parse(m->text, parser);
-      parse(m->web_page_id, parser);
+      if (has_web_page_id) {
+        parse(m->web_page_id, parser);
+      }
+      if (has_web_page_url) {
+        parse(m->web_page_url, parser);
+      }
       content = std::move(m);
       break;
     }
@@ -1861,6 +2026,7 @@ static void parse(unique_ptr<MessageContent> &content, ParserT &parser) {
       bool has_message_id;
       BEGIN_PARSE_FLAGS();
       PARSE_FLAG(has_message_id);
+      PARSE_FLAG(m->for_both);
       END_PARSE_FLAGS();
       if (has_message_id) {
         parse(m->old_message_id, parser);
@@ -1884,6 +2050,64 @@ static void parse(unique_ptr<MessageContent> &content, ParserT &parser) {
     case MessageContentType::WriteAccessAllowedByRequest:
       content = make_unique<MessageWriteAccessAllowedByRequest>();
       break;
+    case MessageContentType::GiftCode: {
+      auto m = make_unique<MessageGiftCode>();
+      bool has_creator_dialog_id;
+      BEGIN_PARSE_FLAGS();
+      PARSE_FLAG(m->via_giveaway);
+      PARSE_FLAG(has_creator_dialog_id);
+      PARSE_FLAG(m->is_unclaimed);
+      END_PARSE_FLAGS();
+      if (has_creator_dialog_id) {
+        parse(m->creator_dialog_id, parser);
+      }
+      parse(m->months, parser);
+      parse(m->code, parser);
+      content = std::move(m);
+      break;
+    }
+    case MessageContentType::Giveaway: {
+      auto m = make_unique<MessageGiveaway>();
+      BEGIN_PARSE_FLAGS();
+      END_PARSE_FLAGS();
+      parse(m->giveaway_parameters, parser);
+      parse(m->quantity, parser);
+      parse(m->months, parser);
+      if (!m->giveaway_parameters.is_valid()) {
+        is_bad = true;
+      }
+      content = std::move(m);
+      break;
+    }
+    case MessageContentType::GiveawayLaunch:
+      content = make_unique<MessageGiveawayLaunch>();
+      break;
+    case MessageContentType::GiveawayResults: {
+      auto m = make_unique<MessageGiveawayResults>();
+      bool has_winner_count;
+      bool has_unclaimed_count;
+      bool has_giveaway_message_id;
+      BEGIN_PARSE_FLAGS();
+      PARSE_FLAG(has_winner_count);
+      PARSE_FLAG(has_unclaimed_count);
+      PARSE_FLAG(has_giveaway_message_id);
+      END_PARSE_FLAGS();
+      if (has_winner_count) {
+        parse(m->winner_count, parser);
+      }
+      if (has_unclaimed_count) {
+        parse(m->unclaimed_count, parser);
+      }
+      if (has_giveaway_message_id) {
+        parse(m->giveaway_message_id, parser);
+      }
+      if (m->winner_count < 0 || m->unclaimed_count < 0) {
+        is_bad = true;
+      }
+      content = std::move(m);
+      break;
+    }
+
     default:
       is_bad = true;
   }
@@ -1918,6 +2142,7 @@ InlineMessageContent create_inline_message_content(Td *td, FileId file_id,
   InlineMessageContent result;
   tl_object_ptr<telegram_api::ReplyMarkup> reply_markup;
   result.disable_web_page_preview = false;
+  result.invert_media = false;
   switch (bot_inline_message->get_id()) {
     case telegram_api::botInlineMessageText::ID: {
       auto inline_message = move_tl_object_as<telegram_api::botInlineMessageText>(bot_inline_message);
@@ -1930,13 +2155,41 @@ InlineMessageContent create_inline_message_content(Td *td, FileId file_id,
       }
 
       result.disable_web_page_preview = inline_message->no_webpage_;
+      result.invert_media = inline_message->invert_media_;
       FormattedText text{std::move(inline_message->message_), std::move(entities)};
       WebPageId web_page_id;
       if (!result.disable_web_page_preview) {
-        web_page_id = td->web_pages_manager_->get_web_page_by_url(get_first_url(text));
+        web_page_id = td->web_pages_manager_->get_web_page_by_url(get_first_url(text).str());
       }
-      result.message_content = make_unique<MessageText>(std::move(text), web_page_id);
+      result.message_content =
+          td::make_unique<MessageText>(std::move(text), web_page_id, false, false, false, string());
       reply_markup = std::move(inline_message->reply_markup_);
+      break;
+    }
+    case telegram_api::botInlineMessageMediaWebPage::ID: {
+      auto inline_message = move_tl_object_as<telegram_api::botInlineMessageMediaWebPage>(bot_inline_message);
+      string web_page_url;
+      if (inline_message->manual_) {
+        web_page_url = std::move(inline_message->url_);
+      }
+      auto entities = get_message_entities(td->contacts_manager_.get(), std::move(inline_message->entities_),
+                                           "botInlineMessageMediaWebPage");
+      auto status =
+          fix_formatted_text(inline_message->message_, entities, !web_page_url.empty(), true, true, false, false);
+      if (status.is_error()) {
+        LOG(ERROR) << "Receive error " << status << " while parsing botInlineMessageMediaWebPage "
+                   << inline_message->message_;
+        break;
+      }
+
+      FormattedText text{std::move(inline_message->message_), std::move(entities)};
+      WebPageId web_page_id =
+          td->web_pages_manager_->get_web_page_by_url(web_page_url.empty() ? get_first_url(text).str() : web_page_url);
+      result.message_content = td::make_unique<MessageText>(
+          std::move(text), web_page_id, inline_message->force_small_media_, inline_message->force_large_media_,
+          inline_message->safe_, std::move(web_page_url));
+      reply_markup = std::move(inline_message->reply_markup_);
+      result.invert_media = inline_message->invert_media_;
       break;
     }
     case telegram_api::botInlineMessageMediaInvoice::ID: {
@@ -2001,6 +2254,7 @@ InlineMessageContent create_inline_message_content(Td *td, FileId file_id,
         LOG(WARNING) << "Unallowed bot inline message " << to_string(inline_message);
       }
 
+      result.invert_media = inline_message->invert_media_;
       reply_markup = std::move(inline_message->reply_markup_);
       break;
     }
@@ -2012,8 +2266,11 @@ InlineMessageContent create_inline_message_content(Td *td, FileId file_id,
 }
 
 unique_ptr<MessageContent> create_text_message_content(string text, vector<MessageEntity> entities,
-                                                       WebPageId web_page_id) {
-  return make_unique<MessageText>(FormattedText{std::move(text), std::move(entities)}, web_page_id);
+                                                       WebPageId web_page_id, bool force_small_media,
+                                                       bool force_large_media, bool skip_confirmation,
+                                                       string &&web_page_url) {
+  return td::make_unique<MessageText>(FormattedText{std::move(text), std::move(entities)}, web_page_id,
+                                      force_small_media, force_large_media, skip_confirmation, std::move(web_page_url));
 }
 
 unique_ptr<MessageContent> create_contact_registered_message_content() {
@@ -2046,10 +2303,11 @@ static Result<InputMessageContent> create_input_message_content(
   }
 
   bool disable_web_page_preview = false;
+  bool invert_media = false;
   bool clear_draft = false;
   unique_ptr<MessageContent> content;
   UserId via_bot_user_id;
-  int32 ttl = 0;
+  td_api::object_ptr<td_api::MessageSelfDestructType> self_destruct_type;
   string emoji;
   bool is_bot = td->auth_manager_->is_bot();
   bool is_secret = dialog_id.get_type() == DialogType::SecretChat;
@@ -2057,7 +2315,9 @@ static Result<InputMessageContent> create_input_message_content(
     case td_api::inputMessageText::ID: {
       TRY_RESULT(input_message_text,
                  process_input_message_text(td, dialog_id, std::move(input_message_content), is_bot));
+      auto web_page_url = std::move(input_message_text.web_page_url);
       disable_web_page_preview = input_message_text.disable_web_page_preview;
+      invert_media = input_message_text.show_above_text;
       clear_draft = input_message_text.clear_draft;
 
       if (is_bot && static_cast<int64>(utf8_length(input_message_text.text.text)) >
@@ -2070,9 +2330,12 @@ static Result<InputMessageContent> create_input_message_content(
           dialog_id.get_type() != DialogType::Channel ||
           td->contacts_manager_->get_channel_permissions(dialog_id.get_channel_id()).can_add_web_page_previews();
       if (!is_bot && !disable_web_page_preview && can_add_web_page_previews) {
-        web_page_id = td->web_pages_manager_->get_web_page_by_url(get_first_url(input_message_text.text));
+        web_page_id = td->web_pages_manager_->get_web_page_by_url(
+            web_page_url.empty() ? get_first_url(input_message_text.text).str() : web_page_url);
       }
-      content = make_unique<MessageText>(std::move(input_message_text.text), web_page_id);
+      content = td::make_unique<MessageText>(std::move(input_message_text.text), web_page_id,
+                                             input_message_text.force_small_media, input_message_text.force_large_media,
+                                             false, std::move(web_page_url));
       break;
     }
     case td_api::inputMessageAnimation::ID: {
@@ -2122,7 +2385,7 @@ static Result<InputMessageContent> create_input_message_content(
     case td_api::inputMessagePhoto::ID: {
       auto input_photo = static_cast<td_api::inputMessagePhoto *>(input_message_content.get());
 
-      ttl = input_photo->self_destruct_time_;
+      self_destruct_type = std::move(input_photo->self_destruct_type_);
 
       TRY_RESULT(photo, create_photo(td->file_manager_.get(), file_id, std::move(thumbnail), input_photo->width_,
                                      input_photo->height_, std::move(sticker_file_ids)));
@@ -2146,7 +2409,7 @@ static Result<InputMessageContent> create_input_message_content(
     case td_api::inputMessageVideo::ID: {
       auto input_video = static_cast<td_api::inputMessageVideo *>(input_message_content.get());
 
-      ttl = input_video->self_destruct_time_;
+      self_destruct_type = std::move(input_video->self_destruct_type_);
 
       bool has_stickers = !sticker_file_ids.empty();
       td->videos_manager_->create_video(file_id, string(), thumbnail, AnimationSize(), has_stickers,
@@ -2273,12 +2536,8 @@ static Result<InputMessageContent> create_input_message_content(
           if (correct_option_id < 0 || correct_option_id >= static_cast<int32>(input_poll->options_.size())) {
             return Status::Error(400, "Wrong correct option ID specified");
           }
-          auto r_explanation =
-              get_formatted_text(td, dialog_id, std::move(type->explanation_), is_bot, true, true, false);
-          if (r_explanation.is_error()) {
-            return r_explanation.move_as_error();
-          }
-          explanation = r_explanation.move_as_ok();
+          TRY_RESULT_ASSIGN(
+              explanation, get_formatted_text(td, dialog_id, std::move(type->explanation_), is_bot, true, true, false));
           break;
         }
         default:
@@ -2302,15 +2561,14 @@ static Result<InputMessageContent> create_input_message_content(
       DialogId story_sender_dialog_id(input_story->story_sender_chat_id_);
       StoryId story_id(input_story->story_id_);
       StoryFullId story_full_id(story_sender_dialog_id, story_id);
-      if (!td->story_manager_->have_story_force(story_full_id) ||
-          story_sender_dialog_id.get_type() != DialogType::User) {
+      if (!td->story_manager_->have_story_force(story_full_id)) {
         return Status::Error(400, "Story not found");
       }
       if (!story_id.is_server()) {
         return Status::Error(400, "Story can't be forwarded");
       }
-      if (td->contacts_manager_->get_input_user(story_sender_dialog_id.get_user_id()).is_error()) {
-        return Status::Error(400, "Can't access the user");
+      if (td->messages_manager_->get_input_peer(dialog_id, AccessRights::Read) == nullptr) {
+        return Status::Error(400, "Can't access the story");
       }
       content = make_unique<MessageStory>(story_full_id, false);
       break;
@@ -2319,15 +2577,30 @@ static Result<InputMessageContent> create_input_message_content(
       UNREACHABLE();
   }
 
-  static constexpr int32 MAX_PRIVATE_MESSAGE_TTL = 60;  // server side limit
-  if (ttl < 0 || ttl > MAX_PRIVATE_MESSAGE_TTL) {
-    return Status::Error(400, "Invalid message content self-destruct time specified");
+  if (self_destruct_type != nullptr && dialog_id.get_type() != DialogType::User) {
+    return Status::Error(400, "Messages can self-destruct only in  can be specified only in private chats");
   }
-  if (ttl > 0 && dialog_id.get_type() != DialogType::User) {
-    return Status::Error(400, "Message content self-destruct time can be specified only in private chats");
+  int32 ttl = 0;
+  if (self_destruct_type != nullptr) {
+    switch (self_destruct_type->get_id()) {
+      case td_api::messageSelfDestructTypeTimer::ID: {
+        ttl = static_cast<const td_api::messageSelfDestructTypeTimer *>(self_destruct_type.get())->self_destruct_time_;
+
+        static constexpr int32 MAX_PRIVATE_MESSAGE_TTL = 60;  // server side limit
+        if (ttl <= 0 || ttl > MAX_PRIVATE_MESSAGE_TTL) {
+          return Status::Error(400, "Invalid message content self-destruct time specified");
+        }
+        break;
+      }
+      case td_api::messageSelfDestructTypeImmediately::ID:
+        ttl = 0x7FFFFFFF;
+        break;
+      default:
+        UNREACHABLE();
+    }
   }
 
-  return InputMessageContent{std::move(content), disable_web_page_preview, clear_draft, ttl,
+  return InputMessageContent{std::move(content), disable_web_page_preview, invert_media, clear_draft, ttl,
                              via_bot_user_id,    std::move(emoji)};
 }
 
@@ -2445,9 +2718,10 @@ bool can_have_input_media(const Td *td, const MessageContent *content, bool is_s
     case MessageContentType::Story: {
       auto story_full_id = static_cast<const MessageStory *>(content)->story_full_id;
       auto dialog_id = story_full_id.get_dialog_id();
-      CHECK(dialog_id.get_type() == DialogType::User);
-      return td->contacts_manager_->get_input_user(dialog_id.get_user_id()).is_ok();
+      return td->messages_manager_->get_input_peer(dialog_id, AccessRights::Read) != nullptr;
     }
+    case MessageContentType::Giveaway:
+      return is_server;
     case MessageContentType::Unsupported:
     case MessageContentType::ChatCreate:
     case MessageContentType::ChatChangeTitle:
@@ -2488,6 +2762,9 @@ bool can_have_input_media(const Td *td, const MessageContent *content, bool is_s
     case MessageContentType::WebViewWriteAccessAllowed:
     case MessageContentType::SetBackground:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       return false;
     case MessageContentType::Animation:
     case MessageContentType::Audio:
@@ -2551,7 +2828,10 @@ SecretInputMedia get_secret_input_media(const MessageContent *content, Td *td,
       CHECK(input_file == nullptr);
       CHECK(thumbnail.empty());
       const auto *m = static_cast<const MessageText *>(content);
-      return td->web_pages_manager_->get_secret_input_media(m->web_page_id);
+      if (m->web_page_url.empty()) {
+        return SecretInputMedia{};
+      }
+      return SecretInputMedia{nullptr, make_tl_object<secret_api::decryptedMessageMediaWebPage>(m->web_page_url)};
     }
     case MessageContentType::Venue: {
       const auto *m = static_cast<const MessageVenue *>(content);
@@ -2618,6 +2898,10 @@ SecretInputMedia get_secret_input_media(const MessageContent *content, Td *td,
     case MessageContentType::WebViewWriteAccessAllowed:
     case MessageContentType::SetBackground:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::Giveaway:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       break;
     default:
       UNREACHABLE();
@@ -2751,6 +3035,10 @@ static tl_object_ptr<telegram_api::InputMedia> get_input_media_impl(
     case MessageContentType::WebViewWriteAccessAllowed:
     case MessageContentType::SetBackground:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::Giveaway:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       break;
     default:
       UNREACHABLE();
@@ -2840,6 +3128,30 @@ tl_object_ptr<telegram_api::InputMedia> get_fake_input_media(Td *td, tl_object_p
   }
 }
 
+tl_object_ptr<telegram_api::InputMedia> get_message_content_input_media_web_page(const Td *td,
+                                                                                 const MessageContent *content) {
+  CHECK(content != nullptr);
+  if (content->get_type() != MessageContentType::Text) {
+    return nullptr;
+  }
+  auto *text = static_cast<const MessageText *>(content);
+  if (text->web_page_url.empty()) {
+    return nullptr;
+  }
+  int32 flags = 0;
+  if (text->force_small_media) {
+    flags |= telegram_api::inputMediaWebPage::FORCE_SMALL_MEDIA_MASK;
+  }
+  if (text->force_large_media) {
+    flags |= telegram_api::inputMediaWebPage::FORCE_LARGE_MEDIA_MASK;
+  }
+  if (!text->text.text.empty()) {
+    flags |= telegram_api::inputMediaWebPage::OPTIONAL_MASK;
+  }
+  return telegram_api::make_object<telegram_api::inputMediaWebPage>(flags, false /*ignored*/, false /*ignored*/,
+                                                                    false /*ignored*/, text->web_page_url);
+}
+
 void delete_message_content_thumbnail(MessageContent *content, Td *td) {
   switch (content->get_type()) {
     case MessageContentType::Animation: {
@@ -2924,15 +3236,24 @@ void delete_message_content_thumbnail(MessageContent *content, Td *td) {
     case MessageContentType::WebViewWriteAccessAllowed:
     case MessageContentType::SetBackground:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::Giveaway:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       break;
     default:
       UNREACHABLE();
   }
 }
 
-Status can_send_message_content(DialogId dialog_id, const MessageContent *content, bool is_forward, const Td *td) {
+Status can_send_message_content(DialogId dialog_id, const MessageContent *content, bool is_forward,
+                                bool check_permissions, const Td *td) {
   auto dialog_type = dialog_id.get_type();
   RestrictedRights permissions = [&] {
+    if (!check_permissions) {
+      return RestrictedRights(true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+                              true, true, ChannelType::Unknown);
+    }
     switch (dialog_type) {
       case DialogType::User:
         return td->contacts_manager_->get_user_default_permissions(dialog_id.get_user_id());
@@ -2992,6 +3313,14 @@ Status can_send_message_content(DialogId dialog_id, const MessageContent *conten
         return Status::Error(400, "Not enough rights to send games to the chat");
       }
       break;
+    case MessageContentType::Giveaway:
+      if (!permissions.can_send_messages()) {
+        return Status::Error(400, "Not enough rights to send giveaways to the chat");
+      }
+      if (dialog_type == DialogType::SecretChat) {
+        return Status::Error(400, "Giveaways can't be sent to secret chats");
+      }
+      break;
     case MessageContentType::Invoice:
       if (!permissions.can_send_messages()) {
         return Status::Error(400, "Not enough rights to send invoice messages to the chat");
@@ -3033,7 +3362,7 @@ Status can_send_message_content(DialogId dialog_id, const MessageContent *conten
       }
       break;
     case MessageContentType::Sticker:
-      if (!permissions.can_send_messages()) {
+      if (!permissions.can_send_stickers()) {
         return Status::Error(400, "Not enough rights to send stickers to the chat");
       }
       if (get_message_content_sticker_type(td, content) == StickerType::CustomEmoji) {
@@ -3043,6 +3372,9 @@ Status can_send_message_content(DialogId dialog_id, const MessageContent *conten
     case MessageContentType::Story:
       if (!permissions.can_send_photos() || !permissions.can_send_videos()) {
         return Status::Error(400, "Not enough rights to send stories to the chat");
+      }
+      if (dialog_type == DialogType::SecretChat) {
+        return Status::Error(400, "Story messages can't be sent to secret chats");
       }
       break;
     case MessageContentType::Text:
@@ -3119,6 +3451,9 @@ Status can_send_message_content(DialogId dialog_id, const MessageContent *conten
     case MessageContentType::WebViewWriteAccessAllowed:
     case MessageContentType::SetBackground:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       UNREACHABLE();
   }
   return Status::OK();
@@ -3128,7 +3463,8 @@ bool can_forward_message_content(const MessageContent *content) {
   auto content_type = content->get_type();
   if (content_type == MessageContentType::Text) {
     auto *text = static_cast<const MessageText *>(content);
-    return !is_empty_string(text->text.text);  // text must be non-empty in the new message
+    // text must be non-empty if there is no link preview
+    return !is_empty_string(text->text.text) || text->web_page_id.is_valid() || !text->web_page_url.empty();
   }
   if (content_type == MessageContentType::Poll) {
     auto *poll = static_cast<const MessagePoll *>(content);
@@ -3257,6 +3593,10 @@ static int32 get_message_content_media_index_mask(const MessageContent *content,
     case MessageContentType::WebViewWriteAccessAllowed:
     case MessageContentType::SetBackground:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::Giveaway:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       return 0;
     default:
       UNREACHABLE();
@@ -3283,13 +3623,19 @@ MessageId get_message_content_pinned_message_id(const MessageContent *content) {
   }
 }
 
-BackgroundInfo get_message_content_background_info(const MessageContent *content) {
+BackgroundInfo get_message_content_my_background_info(const MessageContent *content, bool is_outgoing) {
   switch (content->get_type()) {
-    case MessageContentType::SetBackground:
-      return static_cast<const MessageSetBackground *>(content)->background_info;
+    case MessageContentType::SetBackground: {
+      const auto *set_background = static_cast<const MessageSetBackground *>(content);
+      if (is_outgoing || set_background->for_both) {
+        return set_background->background_info;
+      }
+      break;
+    }
     default:
-      return BackgroundInfo();
+      break;
   }
+  return BackgroundInfo();
 }
 
 string get_message_content_theme_name(const MessageContent *content) {
@@ -3301,7 +3647,7 @@ string get_message_content_theme_name(const MessageContent *content) {
   }
 }
 
-FullMessageId get_message_content_replied_message_id(DialogId dialog_id, const MessageContent *content) {
+MessageFullId get_message_content_replied_message_id(DialogId dialog_id, const MessageContent *content) {
   switch (content->get_type()) {
     case MessageContentType::PinMessage:
       return {dialog_id, static_cast<const MessagePinMessage *>(content)->message_id};
@@ -3310,7 +3656,7 @@ FullMessageId get_message_content_replied_message_id(DialogId dialog_id, const M
     case MessageContentType::PaymentSuccessful: {
       auto *m = static_cast<const MessagePaymentSuccessful *>(content);
       if (!m->invoice_message_id.is_valid()) {
-        return FullMessageId();
+        return MessageFullId();
       }
 
       auto reply_in_dialog_id = m->invoice_dialog_id.is_valid() ? m->invoice_dialog_id : dialog_id;
@@ -3319,13 +3665,21 @@ FullMessageId get_message_content_replied_message_id(DialogId dialog_id, const M
     case MessageContentType::SetBackground: {
       auto *m = static_cast<const MessageSetBackground *>(content);
       if (!m->old_message_id.is_valid()) {
-        return FullMessageId();
+        return MessageFullId();
       }
 
       return {dialog_id, m->old_message_id};
     }
+    case MessageContentType::GiveawayResults: {
+      auto *m = static_cast<const MessageGiveawayResults *>(content);
+      if (!m->giveaway_message_id.is_valid()) {
+        return MessageFullId();
+      }
+
+      return {dialog_id, m->giveaway_message_id};
+    }
     default:
-      return FullMessageId();
+      return MessageFullId();
   }
 }
 
@@ -3335,14 +3689,28 @@ std::pair<InputGroupCallId, bool> get_message_content_group_call_info(const Mess
   return {m->input_group_call_id, m->duration >= 0};
 }
 
+static vector<UserId> get_formatted_text_user_ids(const FormattedText *formatted_text) {
+  vector<UserId> user_ids;
+  if (formatted_text != nullptr) {
+    for (auto &entity : formatted_text->entities) {
+      if (entity.user_id.is_valid()) {
+        user_ids.push_back(entity.user_id);
+      }
+    }
+  }
+  return user_ids;
+}
+
 vector<UserId> get_message_content_min_user_ids(const Td *td, const MessageContent *message_content) {
+  CHECK(message_content != nullptr);
   switch (message_content->get_type()) {
     case MessageContentType::Text: {
       const auto *content = static_cast<const MessageText *>(message_content);
+      auto user_ids = get_formatted_text_user_ids(&content->text);
       if (content->web_page_id.is_valid()) {
-        return td->web_pages_manager_->get_web_page_user_ids(content->web_page_id);
+        combine(user_ids, td->web_pages_manager_->get_web_page_user_ids(content->web_page_id));
       }
-      break;
+      return user_ids;
     }
     case MessageContentType::Animation:
       break;
@@ -3359,9 +3727,11 @@ vector<UserId> get_message_content_min_user_ids(const Td *td, const MessageConte
     case MessageContentType::Document:
       break;
     case MessageContentType::Game: {
-      // not supported server-side
-      // const auto *content = static_cast<const MessageGame *>(message_content);
-      // return {content->game.get_bot_user_id())};
+      const auto *content = static_cast<const MessageGame *>(message_content);
+      auto user_id = content->game.get_bot_user_id();
+      if (user_id.is_valid()) {
+        return {user_id};
+      }
       break;
     }
     case MessageContentType::Invoice:
@@ -3443,8 +3813,17 @@ vector<UserId> get_message_content_min_user_ids(const Td *td, const MessageConte
       break;
     case MessageContentType::Dice:
       break;
-    case MessageContentType::ProximityAlertTriggered:
-      break;
+    case MessageContentType::ProximityAlertTriggered: {
+      const auto *content = static_cast<const MessageProximityAlertTriggered *>(message_content);
+      vector<UserId> user_ids;
+      if (content->traveler_dialog_id.get_type() == DialogType::User) {
+        user_ids.push_back(content->traveler_dialog_id.get_user_id());
+      }
+      if (content->watcher_dialog_id.get_type() == DialogType::User) {
+        user_ids.push_back(content->watcher_dialog_id.get_user_id());
+      }
+      return user_ids;
+    }
     case MessageContentType::GroupCall:
       break;
     case MessageContentType::InviteToGroupCall: {
@@ -3483,8 +3862,55 @@ vector<UserId> get_message_content_min_user_ids(const Td *td, const MessageConte
     }
     case MessageContentType::WriteAccessAllowedByRequest:
       break;
+    case MessageContentType::GiftCode:
+      break;
+    case MessageContentType::Giveaway:
+      break;
+    case MessageContentType::GiveawayLaunch:
+      break;
+    case MessageContentType::GiveawayResults:
+      break;
     default:
       UNREACHABLE();
+      break;
+  }
+  return get_formatted_text_user_ids(get_message_content_text(message_content));
+}
+
+vector<ChannelId> get_message_content_min_channel_ids(const Td *td, const MessageContent *message_content) {
+  CHECK(message_content != nullptr);
+  switch (message_content->get_type()) {
+    case MessageContentType::Text: {
+      const auto *content = static_cast<const MessageText *>(message_content);
+      if (content->web_page_id.is_valid()) {
+        return td->web_pages_manager_->get_web_page_channel_ids(content->web_page_id);
+      }
+      break;
+    }
+    case MessageContentType::ProximityAlertTriggered: {
+      const auto *content = static_cast<const MessageProximityAlertTriggered *>(message_content);
+      vector<ChannelId> channel_ids;
+      if (content->traveler_dialog_id.get_type() == DialogType::Channel) {
+        channel_ids.push_back(content->traveler_dialog_id.get_channel_id());
+      }
+      if (content->watcher_dialog_id.get_type() == DialogType::Channel) {
+        channel_ids.push_back(content->watcher_dialog_id.get_channel_id());
+      }
+      return channel_ids;
+    }
+    case MessageContentType::Story: {
+      const auto *content = static_cast<const MessageStory *>(message_content);
+      auto dialog_id = content->story_full_id.get_dialog_id();
+      if (dialog_id.get_type() == DialogType::Channel) {
+        return {dialog_id.get_channel_id()};
+      }
+      break;
+    }
+    case MessageContentType::Giveaway: {
+      const auto *content = static_cast<const MessageGiveaway *>(message_content);
+      return content->giveaway_parameters.get_channel_ids();
+    }
+    default:
       break;
   }
   return {};
@@ -3549,7 +3975,12 @@ bool has_message_content_web_page(const MessageContent *content) {
 
 void remove_message_content_web_page(MessageContent *content) {
   CHECK(content->get_type() == MessageContentType::Text);
-  static_cast<MessageText *>(content)->web_page_id = WebPageId();
+  auto message_text = static_cast<MessageText *>(content);
+  message_text->web_page_id = WebPageId();
+  message_text->force_small_media = false;
+  message_text->force_large_media = false;
+  message_text->skip_web_page_confirmation = false;
+  message_text->web_page_url = string();
 }
 
 bool can_message_content_have_media_timestamp(const MessageContent *content) {
@@ -3570,25 +4001,25 @@ bool can_message_content_have_media_timestamp(const MessageContent *content) {
   }
 }
 
-void set_message_content_poll_answer(Td *td, const MessageContent *content, FullMessageId full_message_id,
+void set_message_content_poll_answer(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                      vector<int32> &&option_ids, Promise<Unit> &&promise) {
   CHECK(content->get_type() == MessageContentType::Poll);
-  td->poll_manager_->set_poll_answer(static_cast<const MessagePoll *>(content)->poll_id, full_message_id,
+  td->poll_manager_->set_poll_answer(static_cast<const MessagePoll *>(content)->poll_id, message_full_id,
                                      std::move(option_ids), std::move(promise));
 }
 
-void get_message_content_poll_voters(Td *td, const MessageContent *content, FullMessageId full_message_id,
+void get_message_content_poll_voters(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                      int32 option_id, int32 offset, int32 limit,
                                      Promise<td_api::object_ptr<td_api::messageSenders>> &&promise) {
   CHECK(content->get_type() == MessageContentType::Poll);
-  td->poll_manager_->get_poll_voters(static_cast<const MessagePoll *>(content)->poll_id, full_message_id, option_id,
+  td->poll_manager_->get_poll_voters(static_cast<const MessagePoll *>(content)->poll_id, message_full_id, option_id,
                                      offset, limit, std::move(promise));
 }
 
-void stop_message_content_poll(Td *td, const MessageContent *content, FullMessageId full_message_id,
+void stop_message_content_poll(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                unique_ptr<ReplyMarkup> &&reply_markup, Promise<Unit> &&promise) {
   CHECK(content->get_type() == MessageContentType::Poll);
-  td->poll_manager_->stop_poll(static_cast<const MessagePoll *>(content)->poll_id, full_message_id,
+  td->poll_manager_->stop_poll(static_cast<const MessagePoll *>(content)->poll_id, message_full_id,
                                std::move(reply_markup), std::move(promise));
 }
 
@@ -3636,6 +4067,17 @@ static bool need_message_entities_changed_warning(const vector<MessageEntity> &o
       new_pos++;
       continue;
     }
+    if (old_pos < old_entities.size() && new_pos < new_entities.size() &&
+        (old_entities[old_pos].type == MessageEntity::Type::Pre ||
+         old_entities[old_pos].type == MessageEntity::Type::PreCode) &&
+        new_entities[new_pos].type == MessageEntity::Type::PreCode && old_entities[old_pos].argument.empty() &&
+        old_entities[old_pos].offset == new_entities[new_pos].offset &&
+        old_entities[old_pos].length == new_entities[new_pos].length) {
+      // server can add recognized language code
+      old_pos++;
+      new_pos++;
+      continue;
+    }
 
     if (old_pos < old_entities.size() && (old_entities[old_pos].type == MessageEntity::Type::MentionName ||
                                           old_entities[old_pos].type == MessageEntity::Type::CustomEmoji)) {
@@ -3663,15 +4105,14 @@ void merge_message_contents(Td *td, const MessageContent *old_content, MessageCo
       const auto *old_ = static_cast<const MessageText *>(old_content);
       const auto *new_ = static_cast<const MessageText *>(new_content);
       auto get_content_object = [td, dialog_id](const MessageContent *content) {
-        return to_string(
-            get_message_content_object(content, td, dialog_id, -1, false, false, std::numeric_limits<int32>::max()));
+        return to_string(get_message_content_object(content, td, dialog_id, -1, false, false,
+                                                    std::numeric_limits<int32>::max(), false, false));
       };
       if (old_->text.text != new_->text.text) {
         if (need_message_changed_warning && need_message_text_changed_warning(old_, new_)) {
           LOG(ERROR) << "Message text has changed in " << get_content_object(old_content) << ". New content is "
                      << get_content_object(new_content);
         }
-        need_update = true;
       }
       if (old_->text.entities != new_->text.entities) {
         const int32 MAX_CUSTOM_ENTITIES_COUNT = 100;  // server-side limit
@@ -3682,71 +4123,30 @@ void merge_message_contents(Td *td, const MessageContent *old_content, MessageCo
           LOG(WARNING) << "Entities have changed in " << get_content_object(old_content) << ". New content is "
                        << get_content_object(new_content);
         }
-        need_update = true;
-      }
-      if (old_->web_page_id != new_->web_page_id) {
-        LOG(INFO) << "Old: " << old_->web_page_id << ", new: " << new_->web_page_id;
-        is_content_changed = true;
-        need_update |= td->web_pages_manager_->have_web_page(old_->web_page_id) ||
-                       td->web_pages_manager_->have_web_page(new_->web_page_id);
       }
       break;
     }
     case MessageContentType::Animation: {
       const auto *old_ = static_cast<const MessageAnimation *>(old_content);
       const auto *new_ = static_cast<const MessageAnimation *>(new_content);
-      if (old_->file_id != new_->file_id) {
-        if (need_merge_files) {
-          td->animations_manager_->merge_animations(new_->file_id, old_->file_id);
-        }
-        need_update = true;
-      }
-      if (old_->caption != new_->caption || old_->has_spoiler != new_->has_spoiler) {
-        need_update = true;
+      if (old_->file_id != new_->file_id && need_merge_files) {
+        td->animations_manager_->merge_animations(new_->file_id, old_->file_id);
       }
       break;
     }
     case MessageContentType::Audio: {
       const auto *old_ = static_cast<const MessageAudio *>(old_content);
       const auto *new_ = static_cast<const MessageAudio *>(new_content);
-      if (old_->file_id != new_->file_id) {
-        if (need_merge_files) {
-          td->audios_manager_->merge_audios(new_->file_id, old_->file_id);
-        }
-        need_update = true;
-      }
-      if (old_->caption != new_->caption) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::Contact: {
-      const auto *old_ = static_cast<const MessageContact *>(old_content);
-      const auto *new_ = static_cast<const MessageContact *>(new_content);
-      if (old_->contact != new_->contact) {
-        need_update = true;
+      if (old_->file_id != new_->file_id && need_merge_files) {
+        td->audios_manager_->merge_audios(new_->file_id, old_->file_id);
       }
       break;
     }
     case MessageContentType::Document: {
       const auto *old_ = static_cast<const MessageDocument *>(old_content);
       const auto *new_ = static_cast<const MessageDocument *>(new_content);
-      if (old_->file_id != new_->file_id) {
-        if (need_merge_files) {
-          td->documents_manager_->merge_documents(new_->file_id, old_->file_id);
-        }
-        need_update = true;
-      }
-      if (old_->caption != new_->caption) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::Game: {
-      const auto *old_ = static_cast<const MessageGame *>(old_content);
-      const auto *new_ = static_cast<const MessageGame *>(new_content);
-      if (old_->game != new_->game) {
-        need_update = true;
+      if (old_->file_id != new_->file_id && need_merge_files) {
+        td->documents_manager_->merge_documents(new_->file_id, old_->file_id);
       }
       break;
     }
@@ -3754,25 +4154,12 @@ void merge_message_contents(Td *td, const MessageContent *old_content, MessageCo
       const auto *old_ = static_cast<const MessageInvoice *>(old_content);
       auto *new_ = static_cast<MessageInvoice *>(new_content);
       new_->input_invoice.update_from(old_->input_invoice);
-      if (old_->input_invoice != new_->input_invoice) {
-        need_update = true;
-      } else if (old_->input_invoice.is_equal_but_different(new_->input_invoice)) {
-        is_content_changed = true;
-      }
       break;
     }
     case MessageContentType::LiveLocation: {
       const auto *old_ = static_cast<const MessageLiveLocation *>(old_content);
       const auto *new_ = static_cast<const MessageLiveLocation *>(new_content);
-      if (old_->location != new_->location) {
-        need_update = true;
-      }
-      if (old_->period != new_->period || old_->heading != new_->heading ||
-          old_->proximity_alert_radius != new_->proximity_alert_radius) {
-        need_update = true;
-      }
       if (old_->location.get_access_hash() != new_->location.get_access_hash()) {
-        is_content_changed = true;
         merge_location_access_hash(old_->location, new_->location);
       }
       break;
@@ -3780,11 +4167,7 @@ void merge_message_contents(Td *td, const MessageContent *old_content, MessageCo
     case MessageContentType::Location: {
       const auto *old_ = static_cast<const MessageLocation *>(old_content);
       const auto *new_ = static_cast<const MessageLocation *>(new_content);
-      if (old_->location != new_->location) {
-        need_update = true;
-      }
       if (old_->location.get_access_hash() != new_->location.get_access_hash()) {
-        is_content_changed = true;
         merge_location_access_hash(old_->location, new_->location);
       }
       break;
@@ -3793,33 +4176,20 @@ void merge_message_contents(Td *td, const MessageContent *old_content, MessageCo
       const auto *old_ = static_cast<const MessagePhoto *>(old_content);
       auto *new_ = static_cast<MessagePhoto *>(new_content);
       merge_photos(td, &old_->photo, &new_->photo, dialog_id, need_merge_files, is_content_changed, need_update);
-      if (old_->caption != new_->caption || old_->has_spoiler != new_->has_spoiler) {
-        need_update = true;
-      }
       break;
     }
     case MessageContentType::Sticker: {
       const auto *old_ = static_cast<const MessageSticker *>(old_content);
       const auto *new_ = static_cast<const MessageSticker *>(new_content);
-      if (old_->file_id != new_->file_id) {
-        if (need_merge_files) {
-          td->stickers_manager_->merge_stickers(new_->file_id, old_->file_id);
-        }
-        need_update = true;
-      }
-      if (old_->is_premium != new_->is_premium) {
-        need_update = true;
+      if (old_->file_id != new_->file_id && need_merge_files) {
+        td->stickers_manager_->merge_stickers(new_->file_id, old_->file_id);
       }
       break;
     }
     case MessageContentType::Venue: {
       const auto *old_ = static_cast<const MessageVenue *>(old_content);
       const auto *new_ = static_cast<const MessageVenue *>(new_content);
-      if (old_->venue != new_->venue) {
-        need_update = true;
-      }
       if (old_->venue.location().get_access_hash() != new_->venue.location().get_access_hash()) {
-        is_content_changed = true;
         merge_location_access_hash(old_->venue.location(), new_->venue.location());
       }
       break;
@@ -3827,366 +4197,76 @@ void merge_message_contents(Td *td, const MessageContent *old_content, MessageCo
     case MessageContentType::Video: {
       const auto *old_ = static_cast<const MessageVideo *>(old_content);
       const auto *new_ = static_cast<const MessageVideo *>(new_content);
-      if (old_->file_id != new_->file_id) {
-        if (need_merge_files) {
-          td->videos_manager_->merge_videos(new_->file_id, old_->file_id);
-        }
-        need_update = true;
-      }
-      if (old_->caption != new_->caption || old_->has_spoiler != new_->has_spoiler) {
-        need_update = true;
+      if (old_->file_id != new_->file_id && need_merge_files) {
+        td->videos_manager_->merge_videos(new_->file_id, old_->file_id);
       }
       break;
     }
     case MessageContentType::VideoNote: {
       const auto *old_ = static_cast<const MessageVideoNote *>(old_content);
       const auto *new_ = static_cast<const MessageVideoNote *>(new_content);
-      if (old_->file_id != new_->file_id) {
-        if (need_merge_files) {
-          td->video_notes_manager_->merge_video_notes(new_->file_id, old_->file_id);
-        }
-        need_update = true;
-      }
-      if (old_->is_viewed != new_->is_viewed) {
-        need_update = true;
+      if (old_->file_id != new_->file_id && need_merge_files) {
+        td->video_notes_manager_->merge_video_notes(new_->file_id, old_->file_id);
       }
       break;
     }
     case MessageContentType::VoiceNote: {
       const auto *old_ = static_cast<const MessageVoiceNote *>(old_content);
       const auto *new_ = static_cast<const MessageVoiceNote *>(new_content);
-      if (old_->file_id != new_->file_id) {
-        if (need_merge_files) {
-          td->voice_notes_manager_->merge_voice_notes(new_->file_id, old_->file_id);
-        }
-        need_update = true;
-      }
-      if (old_->caption != new_->caption || old_->is_listened != new_->is_listened) {
-        need_update = true;
+      if (old_->file_id != new_->file_id && need_merge_files) {
+        td->voice_notes_manager_->merge_voice_notes(new_->file_id, old_->file_id);
       }
       break;
     }
-    case MessageContentType::ChatCreate: {
-      const auto *old_ = static_cast<const MessageChatCreate *>(old_content);
-      const auto *new_ = static_cast<const MessageChatCreate *>(new_content);
-      if (old_->title != new_->title || old_->participant_user_ids != new_->participant_user_ids) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::ChatChangeTitle: {
-      const auto *old_ = static_cast<const MessageChatChangeTitle *>(old_content);
-      const auto *new_ = static_cast<const MessageChatChangeTitle *>(new_content);
-      if (old_->title != new_->title) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::ChatChangePhoto: {
-      const auto *old_ = static_cast<const MessageChatChangePhoto *>(old_content);
-      const auto *new_ = static_cast<const MessageChatChangePhoto *>(new_content);
-      if (old_->photo != new_->photo) {
-        need_update = true;
-      }
-      break;
-    }
+    case MessageContentType::Contact:
+    case MessageContentType::Game:
+    case MessageContentType::ChatCreate:
+    case MessageContentType::ChatChangeTitle:
+    case MessageContentType::ChatChangePhoto:
     case MessageContentType::ChatDeletePhoto:
-      break;
     case MessageContentType::ChatDeleteHistory:
-      break;
-    case MessageContentType::ChatAddUsers: {
-      const auto *old_ = static_cast<const MessageChatAddUsers *>(old_content);
-      const auto *new_ = static_cast<const MessageChatAddUsers *>(new_content);
-      if (old_->user_ids != new_->user_ids) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::ChatJoinedByLink: {
-      auto old_ = static_cast<const MessageChatJoinedByLink *>(old_content);
-      auto new_ = static_cast<const MessageChatJoinedByLink *>(new_content);
-      if (old_->is_approved != new_->is_approved) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::ChatDeleteUser: {
-      const auto *old_ = static_cast<const MessageChatDeleteUser *>(old_content);
-      const auto *new_ = static_cast<const MessageChatDeleteUser *>(new_content);
-      if (old_->user_id != new_->user_id) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::ChatMigrateTo: {
-      const auto *old_ = static_cast<const MessageChatMigrateTo *>(old_content);
-      const auto *new_ = static_cast<const MessageChatMigrateTo *>(new_content);
-      if (old_->migrated_to_channel_id != new_->migrated_to_channel_id) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::ChannelCreate: {
-      const auto *old_ = static_cast<const MessageChannelCreate *>(old_content);
-      const auto *new_ = static_cast<const MessageChannelCreate *>(new_content);
-      if (old_->title != new_->title) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::ChannelMigrateFrom: {
-      const auto *old_ = static_cast<const MessageChannelMigrateFrom *>(old_content);
-      const auto *new_ = static_cast<const MessageChannelMigrateFrom *>(new_content);
-      if (old_->title != new_->title || old_->migrated_from_chat_id != new_->migrated_from_chat_id) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::PinMessage: {
-      const auto *old_ = static_cast<const MessagePinMessage *>(old_content);
-      const auto *new_ = static_cast<const MessagePinMessage *>(new_content);
-      if (old_->message_id != new_->message_id) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::GameScore: {
-      const auto *old_ = static_cast<const MessageGameScore *>(old_content);
-      const auto *new_ = static_cast<const MessageGameScore *>(new_content);
-      if (old_->game_message_id != new_->game_message_id || old_->game_id != new_->game_id ||
-          old_->score != new_->score) {
-        need_update = true;
-      }
-      break;
-    }
+    case MessageContentType::ChatAddUsers:
+    case MessageContentType::ChatJoinedByLink:
+    case MessageContentType::ChatDeleteUser:
+    case MessageContentType::ChatMigrateTo:
+    case MessageContentType::ChannelCreate:
+    case MessageContentType::ChannelMigrateFrom:
+    case MessageContentType::PinMessage:
+    case MessageContentType::GameScore:
     case MessageContentType::ScreenshotTaken:
-      break;
-    case MessageContentType::ChatSetTtl: {
-      const auto *old_ = static_cast<const MessageChatSetTtl *>(old_content);
-      const auto *new_ = static_cast<const MessageChatSetTtl *>(new_content);
-      if (old_->ttl != new_->ttl) {
-        LOG(ERROR) << "Message auto-delete time has changed from " << old_->ttl << " to " << new_->ttl;
-        need_update = true;
-      }
-      if (old_->from_user_id != new_->from_user_id) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::Call: {
-      const auto *old_ = static_cast<const MessageCall *>(old_content);
-      const auto *new_ = static_cast<const MessageCall *>(new_content);
-      if (old_->call_id != new_->call_id) {
-        is_content_changed = true;
-      }
-      if (old_->duration != new_->duration || old_->discard_reason != new_->discard_reason ||
-          old_->is_video != new_->is_video) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::PaymentSuccessful: {
-      const auto *old_ = static_cast<const MessagePaymentSuccessful *>(old_content);
-      const auto *new_ = static_cast<const MessagePaymentSuccessful *>(new_content);
-      if (old_->invoice_dialog_id != new_->invoice_dialog_id || old_->invoice_message_id != new_->invoice_message_id ||
-          old_->currency != new_->currency || old_->total_amount != new_->total_amount ||
-          old_->invoice_payload != new_->invoice_payload || old_->shipping_option_id != new_->shipping_option_id ||
-          old_->telegram_payment_charge_id != new_->telegram_payment_charge_id ||
-          old_->provider_payment_charge_id != new_->provider_payment_charge_id ||
-          ((old_->order_info != nullptr || new_->order_info != nullptr) &&
-           (old_->order_info == nullptr || new_->order_info == nullptr || *old_->order_info != *new_->order_info)) ||
-          old_->is_recurring != new_->is_recurring || old_->is_first_recurring != new_->is_first_recurring) {
-        need_update = true;
-      }
-      break;
-    }
+    case MessageContentType::ChatSetTtl:
+    case MessageContentType::Call:
+    case MessageContentType::PaymentSuccessful:
     case MessageContentType::ContactRegistered:
-      break;
     case MessageContentType::ExpiredPhoto:
-      break;
     case MessageContentType::ExpiredVideo:
-      break;
-    case MessageContentType::CustomServiceAction: {
-      const auto *old_ = static_cast<const MessageCustomServiceAction *>(old_content);
-      const auto *new_ = static_cast<const MessageCustomServiceAction *>(new_content);
-      if (old_->message != new_->message) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::WebsiteConnected: {
-      const auto *old_ = static_cast<const MessageWebsiteConnected *>(old_content);
-      const auto *new_ = static_cast<const MessageWebsiteConnected *>(new_content);
-      if (old_->domain_name != new_->domain_name) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::PassportDataSent: {
-      const auto *old_ = static_cast<const MessagePassportDataSent *>(old_content);
-      const auto *new_ = static_cast<const MessagePassportDataSent *>(new_content);
-      if (old_->types != new_->types) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::PassportDataReceived: {
-      const auto *old_ = static_cast<const MessagePassportDataReceived *>(old_content);
-      const auto *new_ = static_cast<const MessagePassportDataReceived *>(new_content);
-      if (old_->values != new_->values || old_->credentials != new_->credentials) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::Poll: {
-      const auto *old_ = static_cast<const MessagePoll *>(old_content);
-      const auto *new_ = static_cast<const MessagePoll *>(new_content);
-      if (old_->poll_id != new_->poll_id) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::Dice: {
-      const auto *old_ = static_cast<const MessageDice *>(old_content);
-      const auto *new_ = static_cast<const MessageDice *>(new_content);
-      if (old_->emoji != new_->emoji || old_->dice_value != new_->dice_value) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::ProximityAlertTriggered: {
-      const auto *old_ = static_cast<const MessageProximityAlertTriggered *>(old_content);
-      const auto *new_ = static_cast<const MessageProximityAlertTriggered *>(new_content);
-      if (old_->traveler_dialog_id != new_->traveler_dialog_id || old_->watcher_dialog_id != new_->watcher_dialog_id ||
-          old_->distance != new_->distance) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::GroupCall: {
-      const auto *old_ = static_cast<const MessageGroupCall *>(old_content);
-      const auto *new_ = static_cast<const MessageGroupCall *>(new_content);
-      if (old_->input_group_call_id != new_->input_group_call_id || old_->duration != new_->duration ||
-          old_->schedule_date != new_->schedule_date) {
-        need_update = true;
-      }
-      if (!old_->input_group_call_id.is_identical(new_->input_group_call_id)) {
-        is_content_changed = true;
-      }
-      break;
-    }
-    case MessageContentType::InviteToGroupCall: {
-      const auto *old_ = static_cast<const MessageInviteToGroupCall *>(old_content);
-      const auto *new_ = static_cast<const MessageInviteToGroupCall *>(new_content);
-      if (old_->input_group_call_id != new_->input_group_call_id || old_->user_ids != new_->user_ids) {
-        need_update = true;
-      }
-      if (!old_->input_group_call_id.is_identical(new_->input_group_call_id)) {
-        is_content_changed = true;
-      }
-      break;
-    }
-    case MessageContentType::ChatSetTheme: {
-      const auto *old_ = static_cast<const MessageChatSetTheme *>(old_content);
-      const auto *new_ = static_cast<const MessageChatSetTheme *>(new_content);
-      if (old_->emoji != new_->emoji) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::WebViewDataSent: {
-      const auto *old_ = static_cast<const MessageWebViewDataSent *>(old_content);
-      const auto *new_ = static_cast<const MessageWebViewDataSent *>(new_content);
-      if (old_->button_text != new_->button_text) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::WebViewDataReceived: {
-      const auto *old_ = static_cast<const MessageWebViewDataReceived *>(old_content);
-      const auto *new_ = static_cast<const MessageWebViewDataReceived *>(new_content);
-      if (old_->button_text != new_->button_text || old_->data != new_->data) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::GiftPremium: {
-      const auto *old_ = static_cast<const MessageGiftPremium *>(old_content);
-      const auto *new_ = static_cast<const MessageGiftPremium *>(new_content);
-      if (old_->currency != new_->currency || old_->amount != new_->amount ||
-          old_->crypto_currency != new_->crypto_currency || old_->crypto_amount != new_->crypto_amount ||
-          old_->months != new_->months) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::TopicCreate: {
-      const auto *old_ = static_cast<const MessageTopicCreate *>(old_content);
-      const auto *new_ = static_cast<const MessageTopicCreate *>(new_content);
-      if (old_->title != new_->title || old_->icon != new_->icon) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::TopicEdit: {
-      const auto *old_ = static_cast<const MessageTopicEdit *>(old_content);
-      const auto *new_ = static_cast<const MessageTopicEdit *>(new_content);
-      if (old_->edited_data != new_->edited_data) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::Unsupported: {
-      const auto *old_ = static_cast<const MessageUnsupported *>(old_content);
-      const auto *new_ = static_cast<const MessageUnsupported *>(new_content);
-      if (old_->version != new_->version) {
-        is_content_changed = true;
-      }
-      break;
-    }
-    case MessageContentType::SuggestProfilePhoto: {
-      const auto *old_ = static_cast<const MessageSuggestProfilePhoto *>(old_content);
-      const auto *new_ = static_cast<const MessageSuggestProfilePhoto *>(new_content);
-      if (old_->photo != new_->photo) {
-        need_update = true;
-      }
-      break;
-    }
+    case MessageContentType::CustomServiceAction:
+    case MessageContentType::WebsiteConnected:
+    case MessageContentType::PassportDataSent:
+    case MessageContentType::PassportDataReceived:
+    case MessageContentType::Poll:
+    case MessageContentType::Dice:
+    case MessageContentType::ProximityAlertTriggered:
+    case MessageContentType::GroupCall:
+    case MessageContentType::InviteToGroupCall:
+    case MessageContentType::ChatSetTheme:
+    case MessageContentType::WebViewDataSent:
+    case MessageContentType::WebViewDataReceived:
+    case MessageContentType::GiftPremium:
+    case MessageContentType::TopicCreate:
+    case MessageContentType::TopicEdit:
+    case MessageContentType::Unsupported:
+    case MessageContentType::SuggestProfilePhoto:
     case MessageContentType::WriteAccessAllowed:
-      break;
-    case MessageContentType::RequestedDialog: {
-      const auto *old_ = static_cast<const MessageRequestedDialog *>(old_content);
-      const auto *new_ = static_cast<const MessageRequestedDialog *>(new_content);
-      if (old_->dialog_id != new_->dialog_id || old_->button_id != new_->button_id) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::WebViewWriteAccessAllowed: {
-      const auto *old_ = static_cast<const MessageWebViewWriteAccessAllowed *>(old_content);
-      const auto *new_ = static_cast<const MessageWebViewWriteAccessAllowed *>(new_content);
-      if (old_->web_app != new_->web_app) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::SetBackground: {
-      const auto *old_ = static_cast<const MessageSetBackground *>(old_content);
-      const auto *new_ = static_cast<const MessageSetBackground *>(new_content);
-      if (old_->old_message_id != new_->old_message_id || old_->background_info != new_->background_info) {
-        need_update = true;
-      }
-      break;
-    }
-    case MessageContentType::Story: {
-      const auto *old_ = static_cast<const MessageStory *>(old_content);
-      const auto *new_ = static_cast<const MessageStory *>(new_content);
-      if (old_->story_full_id != new_->story_full_id || old_->via_mention != new_->via_mention) {
-        need_update = true;
-      }
-      break;
-    }
+    case MessageContentType::RequestedDialog:
+    case MessageContentType::WebViewWriteAccessAllowed:
+    case MessageContentType::SetBackground:
+    case MessageContentType::Story:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::Giveaway:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       break;
     default:
       UNREACHABLE();
@@ -4329,6 +4409,10 @@ bool merge_message_content_file_id(Td *td, MessageContent *message_content, File
     case MessageContentType::WebViewWriteAccessAllowed:
     case MessageContentType::SetBackground:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::Giveaway:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       LOG(ERROR) << "Receive new file " << new_file_id << " in a sent message of the type " << content_type;
       break;
     default:
@@ -4336,6 +4420,509 @@ bool merge_message_content_file_id(Td *td, MessageContent *message_content, File
       break;
   }
   return false;
+}
+
+void compare_message_contents(Td *td, const MessageContent *old_content, const MessageContent *new_content,
+                              bool &is_content_changed, bool &need_update) {
+  if (old_content == nullptr) {
+    if (new_content != nullptr) {
+      need_update = true;
+    }
+    return;
+  }
+  MessageContentType content_type = old_content->get_type();
+  if (new_content == nullptr || new_content->get_type() != content_type) {
+    need_update = true;
+    return;
+  }
+
+  switch (content_type) {
+    case MessageContentType::Text: {
+      const auto *lhs = static_cast<const MessageText *>(old_content);
+      const auto *rhs = static_cast<const MessageText *>(new_content);
+      if (lhs->text.text != rhs->text.text || lhs->text.entities != rhs->text.entities ||
+          lhs->web_page_url != rhs->web_page_url || lhs->force_small_media != rhs->force_small_media ||
+          lhs->force_large_media != rhs->force_large_media) {
+        need_update = true;
+      } else if (lhs->web_page_id != rhs->web_page_id ||
+                 lhs->skip_web_page_confirmation != rhs->skip_web_page_confirmation) {
+        is_content_changed = true;
+        if (td == nullptr || td->web_pages_manager_->have_web_page(lhs->web_page_id) ||
+            td->web_pages_manager_->have_web_page(rhs->web_page_id)) {
+          need_update = true;
+        }
+      }
+      break;
+    }
+    case MessageContentType::Animation: {
+      const auto *lhs = static_cast<const MessageAnimation *>(old_content);
+      const auto *rhs = static_cast<const MessageAnimation *>(new_content);
+      if (lhs->file_id != rhs->file_id || lhs->caption != rhs->caption || lhs->has_spoiler != rhs->has_spoiler) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Audio: {
+      const auto *lhs = static_cast<const MessageAudio *>(old_content);
+      const auto *rhs = static_cast<const MessageAudio *>(new_content);
+      if (lhs->file_id != rhs->file_id || lhs->caption != rhs->caption) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Contact: {
+      const auto *lhs = static_cast<const MessageContact *>(old_content);
+      const auto *rhs = static_cast<const MessageContact *>(new_content);
+      if (lhs->contact != rhs->contact) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Document: {
+      const auto *lhs = static_cast<const MessageDocument *>(old_content);
+      const auto *rhs = static_cast<const MessageDocument *>(new_content);
+      if (lhs->file_id != rhs->file_id || lhs->caption != rhs->caption) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Game: {
+      const auto *lhs = static_cast<const MessageGame *>(old_content);
+      const auto *rhs = static_cast<const MessageGame *>(new_content);
+      if (lhs->game != rhs->game) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Invoice: {
+      const auto *lhs = static_cast<const MessageInvoice *>(old_content);
+      const auto *rhs = static_cast<const MessageInvoice *>(new_content);
+      if (lhs->input_invoice != rhs->input_invoice) {
+        need_update = true;
+      } else if (lhs->input_invoice.is_equal_but_different(rhs->input_invoice)) {
+        is_content_changed = true;
+      }
+      break;
+    }
+    case MessageContentType::LiveLocation: {
+      const auto *lhs = static_cast<const MessageLiveLocation *>(old_content);
+      const auto *rhs = static_cast<const MessageLiveLocation *>(new_content);
+      if (lhs->location != rhs->location || lhs->period != rhs->period || lhs->heading != rhs->heading ||
+          lhs->proximity_alert_radius != rhs->proximity_alert_radius) {
+        need_update = true;
+      } else if (lhs->location.get_access_hash() != rhs->location.get_access_hash()) {
+        is_content_changed = true;
+      }
+      break;
+    }
+    case MessageContentType::Location: {
+      const auto *lhs = static_cast<const MessageLocation *>(old_content);
+      const auto *rhs = static_cast<const MessageLocation *>(new_content);
+      if (lhs->location != rhs->location) {
+        need_update = true;
+      } else if (lhs->location.get_access_hash() != rhs->location.get_access_hash()) {
+        is_content_changed = true;
+      }
+      break;
+    }
+    case MessageContentType::Photo: {
+      const auto *lhs = static_cast<const MessagePhoto *>(old_content);
+      const auto *rhs = static_cast<const MessagePhoto *>(new_content);
+      if (lhs->caption != rhs->caption || lhs->has_spoiler != rhs->has_spoiler) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Sticker: {
+      const auto *lhs = static_cast<const MessageSticker *>(old_content);
+      const auto *rhs = static_cast<const MessageSticker *>(new_content);
+      if (lhs->file_id != rhs->file_id || lhs->is_premium != rhs->is_premium) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Venue: {
+      const auto *lhs = static_cast<const MessageVenue *>(old_content);
+      const auto *rhs = static_cast<const MessageVenue *>(new_content);
+      if (lhs->venue != rhs->venue) {
+        need_update = true;
+      } else if (lhs->venue.location().get_access_hash() != rhs->venue.location().get_access_hash()) {
+        is_content_changed = true;
+      }
+      break;
+    }
+    case MessageContentType::Video: {
+      const auto *lhs = static_cast<const MessageVideo *>(old_content);
+      const auto *rhs = static_cast<const MessageVideo *>(new_content);
+      if (lhs->file_id != rhs->file_id || lhs->caption != rhs->caption || lhs->has_spoiler != rhs->has_spoiler) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::VideoNote: {
+      const auto *lhs = static_cast<const MessageVideoNote *>(old_content);
+      const auto *rhs = static_cast<const MessageVideoNote *>(new_content);
+      if (lhs->file_id != rhs->file_id || lhs->is_viewed != rhs->is_viewed) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::VoiceNote: {
+      const auto *lhs = static_cast<const MessageVoiceNote *>(old_content);
+      const auto *rhs = static_cast<const MessageVoiceNote *>(new_content);
+      if (lhs->file_id != rhs->file_id || lhs->caption != rhs->caption || lhs->is_listened != rhs->is_listened) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ChatCreate: {
+      const auto *lhs = static_cast<const MessageChatCreate *>(old_content);
+      const auto *rhs = static_cast<const MessageChatCreate *>(new_content);
+      if (lhs->title != rhs->title || lhs->participant_user_ids != rhs->participant_user_ids) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ChatChangeTitle: {
+      const auto *lhs = static_cast<const MessageChatChangeTitle *>(old_content);
+      const auto *rhs = static_cast<const MessageChatChangeTitle *>(new_content);
+      if (lhs->title != rhs->title) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ChatChangePhoto: {
+      const auto *lhs = static_cast<const MessageChatChangePhoto *>(old_content);
+      const auto *rhs = static_cast<const MessageChatChangePhoto *>(new_content);
+      if (lhs->photo != rhs->photo) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ChatDeletePhoto:
+      break;
+    case MessageContentType::ChatDeleteHistory:
+      break;
+    case MessageContentType::ChatAddUsers: {
+      const auto *lhs = static_cast<const MessageChatAddUsers *>(old_content);
+      const auto *rhs = static_cast<const MessageChatAddUsers *>(new_content);
+      if (lhs->user_ids != rhs->user_ids) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ChatJoinedByLink: {
+      auto lhs = static_cast<const MessageChatJoinedByLink *>(old_content);
+      auto rhs = static_cast<const MessageChatJoinedByLink *>(new_content);
+      if (lhs->is_approved != rhs->is_approved) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ChatDeleteUser: {
+      const auto *lhs = static_cast<const MessageChatDeleteUser *>(old_content);
+      const auto *rhs = static_cast<const MessageChatDeleteUser *>(new_content);
+      if (lhs->user_id != rhs->user_id) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ChatMigrateTo: {
+      const auto *lhs = static_cast<const MessageChatMigrateTo *>(old_content);
+      const auto *rhs = static_cast<const MessageChatMigrateTo *>(new_content);
+      if (lhs->migrated_to_channel_id != rhs->migrated_to_channel_id) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ChannelCreate: {
+      const auto *lhs = static_cast<const MessageChannelCreate *>(old_content);
+      const auto *rhs = static_cast<const MessageChannelCreate *>(new_content);
+      if (lhs->title != rhs->title) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ChannelMigrateFrom: {
+      const auto *lhs = static_cast<const MessageChannelMigrateFrom *>(old_content);
+      const auto *rhs = static_cast<const MessageChannelMigrateFrom *>(new_content);
+      if (lhs->title != rhs->title || lhs->migrated_from_chat_id != rhs->migrated_from_chat_id) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::PinMessage: {
+      const auto *lhs = static_cast<const MessagePinMessage *>(old_content);
+      const auto *rhs = static_cast<const MessagePinMessage *>(new_content);
+      if (lhs->message_id != rhs->message_id) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::GameScore: {
+      const auto *lhs = static_cast<const MessageGameScore *>(old_content);
+      const auto *rhs = static_cast<const MessageGameScore *>(new_content);
+      if (lhs->game_message_id != rhs->game_message_id || lhs->game_id != rhs->game_id || lhs->score != rhs->score) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ScreenshotTaken:
+      break;
+    case MessageContentType::ChatSetTtl: {
+      const auto *lhs = static_cast<const MessageChatSetTtl *>(old_content);
+      const auto *rhs = static_cast<const MessageChatSetTtl *>(new_content);
+      if (lhs->ttl != rhs->ttl || lhs->from_user_id != rhs->from_user_id) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Call: {
+      const auto *lhs = static_cast<const MessageCall *>(old_content);
+      const auto *rhs = static_cast<const MessageCall *>(new_content);
+      if (lhs->duration != rhs->duration || lhs->discard_reason != rhs->discard_reason ||
+          lhs->is_video != rhs->is_video) {
+        need_update = true;
+      } else if (lhs->call_id != rhs->call_id) {
+        is_content_changed = true;
+      }
+      break;
+    }
+    case MessageContentType::PaymentSuccessful: {
+      const auto *lhs = static_cast<const MessagePaymentSuccessful *>(old_content);
+      const auto *rhs = static_cast<const MessagePaymentSuccessful *>(new_content);
+      if (lhs->invoice_dialog_id != rhs->invoice_dialog_id || lhs->invoice_message_id != rhs->invoice_message_id ||
+          lhs->currency != rhs->currency || lhs->total_amount != rhs->total_amount ||
+          lhs->invoice_payload != rhs->invoice_payload || lhs->shipping_option_id != rhs->shipping_option_id ||
+          lhs->telegram_payment_charge_id != rhs->telegram_payment_charge_id ||
+          lhs->provider_payment_charge_id != rhs->provider_payment_charge_id ||
+          ((lhs->order_info != nullptr || rhs->order_info != nullptr) &&
+           (lhs->order_info == nullptr || rhs->order_info == nullptr || *lhs->order_info != *rhs->order_info)) ||
+          lhs->is_recurring != rhs->is_recurring || lhs->is_first_recurring != rhs->is_first_recurring) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ContactRegistered:
+      break;
+    case MessageContentType::ExpiredPhoto:
+      break;
+    case MessageContentType::ExpiredVideo:
+      break;
+    case MessageContentType::CustomServiceAction: {
+      const auto *lhs = static_cast<const MessageCustomServiceAction *>(old_content);
+      const auto *rhs = static_cast<const MessageCustomServiceAction *>(new_content);
+      if (lhs->message != rhs->message) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::WebsiteConnected: {
+      const auto *lhs = static_cast<const MessageWebsiteConnected *>(old_content);
+      const auto *rhs = static_cast<const MessageWebsiteConnected *>(new_content);
+      if (lhs->domain_name != rhs->domain_name) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::PassportDataSent: {
+      const auto *lhs = static_cast<const MessagePassportDataSent *>(old_content);
+      const auto *rhs = static_cast<const MessagePassportDataSent *>(new_content);
+      if (lhs->types != rhs->types) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::PassportDataReceived: {
+      const auto *lhs = static_cast<const MessagePassportDataReceived *>(old_content);
+      const auto *rhs = static_cast<const MessagePassportDataReceived *>(new_content);
+      if (lhs->values != rhs->values || lhs->credentials != rhs->credentials) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Poll: {
+      const auto *lhs = static_cast<const MessagePoll *>(old_content);
+      const auto *rhs = static_cast<const MessagePoll *>(new_content);
+      if (lhs->poll_id != rhs->poll_id) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Dice: {
+      const auto *lhs = static_cast<const MessageDice *>(old_content);
+      const auto *rhs = static_cast<const MessageDice *>(new_content);
+      if (lhs->emoji != rhs->emoji || lhs->dice_value != rhs->dice_value) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::ProximityAlertTriggered: {
+      const auto *lhs = static_cast<const MessageProximityAlertTriggered *>(old_content);
+      const auto *rhs = static_cast<const MessageProximityAlertTriggered *>(new_content);
+      if (lhs->traveler_dialog_id != rhs->traveler_dialog_id || lhs->watcher_dialog_id != rhs->watcher_dialog_id ||
+          lhs->distance != rhs->distance) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::GroupCall: {
+      const auto *lhs = static_cast<const MessageGroupCall *>(old_content);
+      const auto *rhs = static_cast<const MessageGroupCall *>(new_content);
+      if (lhs->input_group_call_id != rhs->input_group_call_id || lhs->duration != rhs->duration ||
+          lhs->schedule_date != rhs->schedule_date) {
+        need_update = true;
+      } else if (!lhs->input_group_call_id.is_identical(rhs->input_group_call_id)) {
+        is_content_changed = true;
+      }
+      break;
+    }
+    case MessageContentType::InviteToGroupCall: {
+      const auto *lhs = static_cast<const MessageInviteToGroupCall *>(old_content);
+      const auto *rhs = static_cast<const MessageInviteToGroupCall *>(new_content);
+      if (lhs->input_group_call_id != rhs->input_group_call_id || lhs->user_ids != rhs->user_ids) {
+        need_update = true;
+      } else if (!lhs->input_group_call_id.is_identical(rhs->input_group_call_id)) {
+        is_content_changed = true;
+      }
+      break;
+    }
+    case MessageContentType::ChatSetTheme: {
+      const auto *lhs = static_cast<const MessageChatSetTheme *>(old_content);
+      const auto *rhs = static_cast<const MessageChatSetTheme *>(new_content);
+      if (lhs->emoji != rhs->emoji) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::WebViewDataSent: {
+      const auto *lhs = static_cast<const MessageWebViewDataSent *>(old_content);
+      const auto *rhs = static_cast<const MessageWebViewDataSent *>(new_content);
+      if (lhs->button_text != rhs->button_text) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::WebViewDataReceived: {
+      const auto *lhs = static_cast<const MessageWebViewDataReceived *>(old_content);
+      const auto *rhs = static_cast<const MessageWebViewDataReceived *>(new_content);
+      if (lhs->button_text != rhs->button_text || lhs->data != rhs->data) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::GiftPremium: {
+      const auto *lhs = static_cast<const MessageGiftPremium *>(old_content);
+      const auto *rhs = static_cast<const MessageGiftPremium *>(new_content);
+      if (lhs->currency != rhs->currency || lhs->amount != rhs->amount ||
+          lhs->crypto_currency != rhs->crypto_currency || lhs->crypto_amount != rhs->crypto_amount ||
+          lhs->months != rhs->months) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::TopicCreate: {
+      const auto *lhs = static_cast<const MessageTopicCreate *>(old_content);
+      const auto *rhs = static_cast<const MessageTopicCreate *>(new_content);
+      if (lhs->title != rhs->title || lhs->icon != rhs->icon) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::TopicEdit: {
+      const auto *lhs = static_cast<const MessageTopicEdit *>(old_content);
+      const auto *rhs = static_cast<const MessageTopicEdit *>(new_content);
+      if (lhs->edited_data != rhs->edited_data) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Unsupported: {
+      const auto *lhs = static_cast<const MessageUnsupported *>(old_content);
+      const auto *rhs = static_cast<const MessageUnsupported *>(new_content);
+      if (lhs->version != rhs->version) {
+        is_content_changed = true;
+      }
+      break;
+    }
+    case MessageContentType::SuggestProfilePhoto: {
+      const auto *lhs = static_cast<const MessageSuggestProfilePhoto *>(old_content);
+      const auto *rhs = static_cast<const MessageSuggestProfilePhoto *>(new_content);
+      if (lhs->photo != rhs->photo) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::WriteAccessAllowed:
+      break;
+    case MessageContentType::RequestedDialog: {
+      const auto *lhs = static_cast<const MessageRequestedDialog *>(old_content);
+      const auto *rhs = static_cast<const MessageRequestedDialog *>(new_content);
+      if (lhs->dialog_id != rhs->dialog_id || lhs->button_id != rhs->button_id) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::WebViewWriteAccessAllowed: {
+      const auto *lhs = static_cast<const MessageWebViewWriteAccessAllowed *>(old_content);
+      const auto *rhs = static_cast<const MessageWebViewWriteAccessAllowed *>(new_content);
+      if (lhs->web_app != rhs->web_app) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::SetBackground: {
+      const auto *lhs = static_cast<const MessageSetBackground *>(old_content);
+      const auto *rhs = static_cast<const MessageSetBackground *>(new_content);
+      if (lhs->old_message_id != rhs->old_message_id || lhs->background_info != rhs->background_info ||
+          lhs->for_both != rhs->for_both) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Story: {
+      const auto *lhs = static_cast<const MessageStory *>(old_content);
+      const auto *rhs = static_cast<const MessageStory *>(new_content);
+      if (lhs->story_full_id != rhs->story_full_id || lhs->via_mention != rhs->via_mention) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::WriteAccessAllowedByRequest:
+      break;
+    case MessageContentType::GiftCode: {
+      const auto *lhs = static_cast<const MessageGiftCode *>(old_content);
+      const auto *rhs = static_cast<const MessageGiftCode *>(new_content);
+      if (lhs->creator_dialog_id != rhs->creator_dialog_id || lhs->months != rhs->months ||
+          lhs->via_giveaway != rhs->via_giveaway || lhs->is_unclaimed != rhs->is_unclaimed || lhs->code != rhs->code) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::Giveaway: {
+      const auto *lhs = static_cast<const MessageGiveaway *>(old_content);
+      const auto *rhs = static_cast<const MessageGiveaway *>(new_content);
+      if (lhs->giveaway_parameters != rhs->giveaway_parameters || lhs->quantity != rhs->quantity ||
+          lhs->months != rhs->months) {
+        need_update = true;
+      }
+      break;
+    }
+    case MessageContentType::GiveawayLaunch:
+      break;
+    case MessageContentType::GiveawayResults: {
+      const auto *lhs = static_cast<const MessageGiveawayResults *>(old_content);
+      const auto *rhs = static_cast<const MessageGiveawayResults *>(new_content);
+      if (lhs->giveaway_message_id != rhs->giveaway_message_id || lhs->winner_count != rhs->winner_count ||
+          lhs->unclaimed_count != rhs->unclaimed_count) {
+        need_update = true;
+      }
+      break;
+    }
+    default:
+      UNREACHABLE();
+      break;
+  }
 }
 
 static bool can_be_animated_emoji(const FormattedText &text) {
@@ -4357,48 +4944,55 @@ static CustomEmojiId get_custom_emoji_id(const FormattedText &text) {
   return text.entities.empty() ? CustomEmojiId() : text.entities[0].custom_emoji_id;
 }
 
-void register_message_content(Td *td, const MessageContent *content, FullMessageId full_message_id,
+void register_message_content(Td *td, const MessageContent *content, MessageFullId message_full_id,
                               const char *source) {
-  switch (content->get_type()) {
+  auto content_type = content->get_type();
+  switch (content_type) {
     case MessageContentType::Text: {
       auto text = static_cast<const MessageText *>(content);
       if (text->web_page_id.is_valid()) {
-        td->web_pages_manager_->register_web_page(text->web_page_id, full_message_id, source);
+        td->web_pages_manager_->register_web_page(text->web_page_id, message_full_id, source);
       } else if (can_be_animated_emoji(text->text)) {
-        td->stickers_manager_->register_emoji(text->text.text, get_custom_emoji_id(text->text), full_message_id,
+        td->stickers_manager_->register_emoji(text->text.text, get_custom_emoji_id(text->text), message_full_id,
                                               source);
       }
       return;
     }
     case MessageContentType::VideoNote:
-      return td->video_notes_manager_->register_video_note(static_cast<const MessageVideoNote *>(content)->file_id,
-                                                           full_message_id, source);
+      return td->transcription_manager_->register_voice(static_cast<const MessageVideoNote *>(content)->file_id,
+                                                        content_type, message_full_id, source);
     case MessageContentType::VoiceNote:
-      return td->voice_notes_manager_->register_voice_note(static_cast<const MessageVoiceNote *>(content)->file_id,
-                                                           full_message_id, source);
+      return td->transcription_manager_->register_voice(static_cast<const MessageVoiceNote *>(content)->file_id,
+                                                        content_type, message_full_id, source);
     case MessageContentType::Poll:
-      return td->poll_manager_->register_poll(static_cast<const MessagePoll *>(content)->poll_id, full_message_id,
+      return td->poll_manager_->register_poll(static_cast<const MessagePoll *>(content)->poll_id, message_full_id,
                                               source);
     case MessageContentType::Dice: {
       auto dice = static_cast<const MessageDice *>(content);
-      return td->stickers_manager_->register_dice(dice->emoji, dice->dice_value, full_message_id, source);
+      return td->stickers_manager_->register_dice(dice->emoji, dice->dice_value, message_full_id, source);
     }
     case MessageContentType::GiftPremium:
       return td->stickers_manager_->register_premium_gift(static_cast<const MessageGiftPremium *>(content)->months,
-                                                          full_message_id, source);
+                                                          message_full_id, source);
+    case MessageContentType::GiftCode:
+      return td->stickers_manager_->register_premium_gift(static_cast<const MessageGiftCode *>(content)->months,
+                                                          message_full_id, source);
+    case MessageContentType::Giveaway:
+      return td->stickers_manager_->register_premium_gift(static_cast<const MessageGiveaway *>(content)->months,
+                                                          message_full_id, source);
     case MessageContentType::SuggestProfilePhoto:
       return td->contacts_manager_->register_suggested_profile_photo(
           static_cast<const MessageSuggestProfilePhoto *>(content)->photo);
     case MessageContentType::Story:
       return td->story_manager_->register_story(static_cast<const MessageStory *>(content)->story_full_id,
-                                                full_message_id, source);
+                                                message_full_id, source);
     default:
       return;
   }
 }
 
 void reregister_message_content(Td *td, const MessageContent *old_content, const MessageContent *new_content,
-                                FullMessageId full_message_id, const char *source) {
+                                MessageFullId message_full_id, const char *source) {
   auto old_content_type = old_content->get_type();
   auto new_content_type = new_content->get_type();
   if (old_content_type == new_content_type) {
@@ -4445,6 +5039,18 @@ void reregister_message_content(Td *td, const MessageContent *old_content, const
           return;
         }
         break;
+      case MessageContentType::GiftCode:
+        if (static_cast<const MessageGiftCode *>(old_content)->months ==
+            static_cast<const MessageGiftCode *>(new_content)->months) {
+          return;
+        }
+        break;
+      case MessageContentType::Giveaway:
+        if (static_cast<const MessageGiveaway *>(old_content)->months ==
+            static_cast<const MessageGiveaway *>(new_content)->months) {
+          return;
+        }
+        break;
       case MessageContentType::Story:
         if (static_cast<const MessageStory *>(old_content)->story_full_id ==
             static_cast<const MessageStory *>(new_content)->story_full_id) {
@@ -4455,42 +5061,67 @@ void reregister_message_content(Td *td, const MessageContent *old_content, const
         return;
     }
   }
-  unregister_message_content(td, old_content, full_message_id, source);
-  register_message_content(td, new_content, full_message_id, source);
+  unregister_message_content(td, old_content, message_full_id, source);
+  register_message_content(td, new_content, message_full_id, source);
 }
 
-void unregister_message_content(Td *td, const MessageContent *content, FullMessageId full_message_id,
+void unregister_message_content(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                 const char *source) {
-  switch (content->get_type()) {
+  auto content_type = content->get_type();
+  switch (content_type) {
     case MessageContentType::Text: {
       auto text = static_cast<const MessageText *>(content);
       if (text->web_page_id.is_valid()) {
-        td->web_pages_manager_->unregister_web_page(text->web_page_id, full_message_id, source);
+        td->web_pages_manager_->unregister_web_page(text->web_page_id, message_full_id, source);
       } else if (can_be_animated_emoji(text->text)) {
-        td->stickers_manager_->unregister_emoji(text->text.text, get_custom_emoji_id(text->text), full_message_id,
+        td->stickers_manager_->unregister_emoji(text->text.text, get_custom_emoji_id(text->text), message_full_id,
                                                 source);
       }
       return;
     }
     case MessageContentType::VideoNote:
-      return td->video_notes_manager_->unregister_video_note(static_cast<const MessageVideoNote *>(content)->file_id,
-                                                             full_message_id, source);
+      return td->transcription_manager_->unregister_voice(static_cast<const MessageVideoNote *>(content)->file_id,
+                                                          content_type, message_full_id, source);
     case MessageContentType::VoiceNote:
-      return td->voice_notes_manager_->unregister_voice_note(static_cast<const MessageVoiceNote *>(content)->file_id,
-                                                             full_message_id, source);
+      return td->transcription_manager_->unregister_voice(static_cast<const MessageVoiceNote *>(content)->file_id,
+                                                          content_type, message_full_id, source);
     case MessageContentType::Poll:
-      return td->poll_manager_->unregister_poll(static_cast<const MessagePoll *>(content)->poll_id, full_message_id,
+      return td->poll_manager_->unregister_poll(static_cast<const MessagePoll *>(content)->poll_id, message_full_id,
                                                 source);
     case MessageContentType::Dice: {
       auto dice = static_cast<const MessageDice *>(content);
-      return td->stickers_manager_->unregister_dice(dice->emoji, dice->dice_value, full_message_id, source);
+      return td->stickers_manager_->unregister_dice(dice->emoji, dice->dice_value, message_full_id, source);
     }
     case MessageContentType::GiftPremium:
       return td->stickers_manager_->unregister_premium_gift(static_cast<const MessageGiftPremium *>(content)->months,
-                                                            full_message_id, source);
+                                                            message_full_id, source);
+    case MessageContentType::GiftCode:
+      return td->stickers_manager_->unregister_premium_gift(static_cast<const MessageGiftCode *>(content)->months,
+                                                            message_full_id, source);
+    case MessageContentType::Giveaway:
+      return td->stickers_manager_->unregister_premium_gift(static_cast<const MessageGiveaway *>(content)->months,
+                                                            message_full_id, source);
     case MessageContentType::Story:
       return td->story_manager_->unregister_story(static_cast<const MessageStory *>(content)->story_full_id,
-                                                  full_message_id, source);
+                                                  message_full_id, source);
+    default:
+      return;
+  }
+}
+
+void register_reply_message_content(Td *td, const MessageContent *content) {
+  switch (content->get_type()) {
+    case MessageContentType::Poll:
+      return td->poll_manager_->register_reply_poll(static_cast<const MessagePoll *>(content)->poll_id);
+    default:
+      return;
+  }
+}
+
+void unregister_reply_message_content(Td *td, const MessageContent *content) {
+  switch (content->get_type()) {
+    case MessageContentType::Poll:
+      return td->poll_manager_->unregister_reply_poll(static_cast<const MessagePoll *>(content)->poll_id);
     default:
       return;
   }
@@ -4839,7 +5470,8 @@ unique_ptr<MessageContent> get_secret_message_content(
       }
       auto url = r_http_url.ok().get_url();
 
-      auto result = make_unique<MessageText>(FormattedText{std::move(message_text), std::move(entities)}, WebPageId());
+      auto result = td::make_unique<MessageText>(FormattedText{std::move(message_text), std::move(entities)},
+                                                 WebPageId(), false, false, false, url);
       td->web_pages_manager_->get_web_page_by_url(
           url,
           PromiseCreator::lambda([&web_page_id = result->web_page_id, promise = load_data_multipromise.get_promise()](
@@ -4865,7 +5497,8 @@ unique_ptr<MessageContent> get_secret_message_content(
     is_media_empty = true;
   }
   if (is_media_empty) {
-    return create_text_message_content(std::move(message_text), std::move(entities), WebPageId());
+    return create_text_message_content(std::move(message_text), std::move(entities), WebPageId(), false, false, false,
+                                       string());
   }
   switch (constructor_id) {
     case secret_api::decryptedMessageMediaPhoto::ID: {
@@ -4905,8 +5538,9 @@ unique_ptr<MessageContent> get_secret_message_content(
 
 unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message,
                                                tl_object_ptr<telegram_api::MessageMedia> &&media_ptr,
-                                               DialogId owner_dialog_id, bool is_content_read, UserId via_bot_user_id,
-                                               int32 *ttl, bool *disable_web_page_preview, const char *source) {
+                                               DialogId owner_dialog_id, int32 message_date, bool is_content_read,
+                                               UserId via_bot_user_id, int32 *ttl, bool *disable_web_page_preview,
+                                               const char *source) {
   if (!td->auth_manager_->was_authorized() && !G()->close_flag() && media_ptr != nullptr &&
       media_ptr->get_id() != telegram_api::messageMediaEmpty::ID) {
     LOG(ERROR) << "Receive without authorization from " << source << ": " << to_string(media_ptr);
@@ -4916,8 +5550,7 @@ unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message,
     *disable_web_page_preview = false;
   }
 
-  int32 constructor_id = media_ptr == nullptr ? telegram_api::messageMediaEmpty::ID : media_ptr->get_id();
-  switch (constructor_id) {
+  switch (media_ptr == nullptr ? telegram_api::messageMediaEmpty::ID : media_ptr->get_id()) {
     case telegram_api::messageMediaEmpty::ID:
       if (message.text.empty()) {
         LOG(ERROR) << "Receive empty message text and media from " << source;
@@ -4925,7 +5558,7 @@ unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message,
       if (disable_web_page_preview != nullptr) {
         *disable_web_page_preview = true;
       }
-      return make_unique<MessageText>(std::move(message), WebPageId());
+      return td::make_unique<MessageText>(std::move(message), WebPageId(), false, false, false, string());
     case telegram_api::messageMediaPhoto::ID: {
       auto media = move_tl_object_as<telegram_api::messageMediaPhoto>(media_ptr);
       if (media->photo_ == nullptr) {
@@ -5048,8 +5681,18 @@ unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message,
       if (disable_web_page_preview != nullptr) {
         *disable_web_page_preview = (media->webpage_ == nullptr);
       }
+      string web_page_url;
+      if (media->manual_ || media->force_small_media_ || media->force_large_media_) {
+        web_page_url = WebPagesManager::get_web_page_url(media->webpage_);
+        if (web_page_url.empty()) {
+          LOG(ERROR) << "Have no URL in " << to_string(media);
+        }
+      } else if (td->auth_manager_->is_bot()) {
+        web_page_url = WebPagesManager::get_web_page_url(media->webpage_);
+      }
       auto web_page_id = td->web_pages_manager_->on_get_web_page(std::move(media->webpage_), owner_dialog_id);
-      return make_unique<MessageText>(std::move(message), web_page_id);
+      return td::make_unique<MessageText>(std::move(message), web_page_id, media->force_small_media_,
+                                          media->force_large_media_, media->safe_, std::move(web_page_url));
     }
     case telegram_api::messageMediaPoll::ID: {
       auto media = move_tl_object_as<telegram_api::messageMediaPoll>(media_ptr);
@@ -5062,21 +5705,44 @@ unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message,
     }
     case telegram_api::messageMediaStory::ID: {
       auto media = move_tl_object_as<telegram_api::messageMediaStory>(media_ptr);
-      auto dialog_id = DialogId(UserId(media->user_id_));
+      auto dialog_id = DialogId(media->peer_);
       auto story_id = StoryId(media->id_);
       auto story_full_id = StoryFullId(dialog_id, story_id);
       if (!story_full_id.is_server()) {
         LOG(ERROR) << "Receive " << to_string(media);
         break;
       }
-      if (media->story_ != nullptr) {
+      if (media->story_ != nullptr && !td->auth_manager_->is_bot()) {
         auto actual_story_id = td->story_manager_->on_get_story(dialog_id, std::move(media->story_));
         if (story_id != actual_story_id) {
           LOG(ERROR) << "Receive " << actual_story_id << " instead of " << story_id;
         }
       }
-      td->messages_manager_->force_create_dialog(dialog_id, "messageMediaStory");
+      td->messages_manager_->force_create_dialog(dialog_id, "messageMediaStory", true);
       return make_unique<MessageStory>(story_full_id, media->via_mention_);
+    }
+    case telegram_api::messageMediaGiveaway::ID: {
+      auto media = move_tl_object_as<telegram_api::messageMediaGiveaway>(media_ptr);
+      vector<ChannelId> channel_ids;
+      for (auto channel : media->channels_) {
+        ChannelId channel_id(channel);
+        if (channel_id.is_valid()) {
+          channel_ids.push_back(channel_id);
+          td->messages_manager_->force_create_dialog(DialogId(channel_id), "messageMediaGiveaway", true);
+        }
+      }
+      if (channel_ids.empty() || media->quantity_ <= 0 || media->months_ <= 0 || media->until_date_ < 0) {
+        if (message_date >= 1700000000) {  // approximate release date
+          LOG(ERROR) << "Receive " << to_string(media);
+        }
+        break;
+      }
+      auto boosted_channel_id = channel_ids[0];
+      channel_ids.erase(channel_ids.begin());
+      return td::make_unique<MessageGiveaway>(
+          GiveawayParameters{boosted_channel_id, std::move(channel_ids), media->only_new_subscribers_,
+                             media->until_date_, std::move(media->countries_iso2_)},
+          media->quantity_, media->months_);
     }
     case telegram_api::messageMediaUnsupported::ID:
       return make_unique<MessageUnsupported>();
@@ -5088,7 +5754,7 @@ unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message,
   if (disable_web_page_preview != nullptr) {
     *disable_web_page_preview = true;
   }
-  return make_unique<MessageText>(std::move(message), WebPageId());
+  return td::make_unique<MessageText>(std::move(message), WebPageId(), false, false, false, string());
 }
 
 unique_ptr<MessageContent> dup_message_content(Td *td, DialogId dialog_id, const MessageContent *content,
@@ -5165,6 +5831,11 @@ unique_ptr<MessageContent> dup_message_content(Td *td, DialogId dialog_id, const
     }
     case MessageContentType::Game:
       return make_unique<MessageGame>(*static_cast<const MessageGame *>(content));
+    case MessageContentType::Giveaway:
+      if (type != MessageContentDupType::Forward) {
+        return nullptr;
+      }
+      return make_unique<MessageGiveaway>(*static_cast<const MessageGiveaway *>(content));
     case MessageContentType::Invoice:
       if (type == MessageContentDupType::Copy) {
         return nullptr;
@@ -5269,7 +5940,7 @@ unique_ptr<MessageContent> dup_message_content(Td *td, DialogId dialog_id, const
     case MessageContentType::Story:
       return make_unique<MessageStory>(static_cast<const MessageStory *>(content)->story_full_id, false);
     case MessageContentType::Text: {
-      auto result = make_unique<MessageText>(*static_cast<const MessageText *>(content));
+      auto result = td::make_unique<MessageText>(*static_cast<const MessageText *>(content));
       if (type == MessageContentDupType::Copy || type == MessageContentDupType::ServerCopy) {
         remove_unallowed_entities(td, result->text, dialog_id);
       }
@@ -5352,6 +6023,9 @@ unique_ptr<MessageContent> dup_message_content(Td *td, DialogId dialog_id, const
     case MessageContentType::WebViewWriteAccessAllowed:
     case MessageContentType::SetBackground:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       return nullptr;
     default:
       UNREACHABLE();
@@ -5361,8 +6035,8 @@ unique_ptr<MessageContent> dup_message_content(Td *td, DialogId dialog_id, const
 }
 
 unique_ptr<MessageContent> get_action_message_content(Td *td, tl_object_ptr<telegram_api::MessageAction> &&action_ptr,
-                                                      DialogId owner_dialog_id, DialogId reply_in_dialog_id,
-                                                      MessageId reply_to_message_id) {
+                                                      DialogId owner_dialog_id, int32 message_date,
+                                                      const RepliedMessageInfo &replied_message_info) {
   CHECK(action_ptr != nullptr);
 
   switch (action_ptr->get_id()) {
@@ -5457,12 +6131,7 @@ unique_ptr<MessageContent> get_action_message_content(Td *td, tl_object_ptr<tele
       return td::make_unique<MessageChannelMigrateFrom>(std::move(action->title_), chat_id);
     }
     case telegram_api::messageActionPinMessage::ID: {
-      if (reply_in_dialog_id.is_valid() && reply_in_dialog_id != owner_dialog_id) {
-        LOG(ERROR) << "Receive pinned message with " << reply_to_message_id << " in " << owner_dialog_id
-                   << " in another " << reply_in_dialog_id;
-        reply_to_message_id = MessageId();
-        reply_in_dialog_id = DialogId();
-      }
+      auto reply_to_message_id = replied_message_info.get_same_chat_reply_to_message_id(true);
       if (!reply_to_message_id.is_valid()) {
         // possible in basic groups
         LOG(INFO) << "Receive pinned message with " << reply_to_message_id << " in " << owner_dialog_id;
@@ -5471,12 +6140,7 @@ unique_ptr<MessageContent> get_action_message_content(Td *td, tl_object_ptr<tele
       return make_unique<MessagePinMessage>(reply_to_message_id);
     }
     case telegram_api::messageActionGameScore::ID: {
-      if (reply_in_dialog_id.is_valid() && reply_in_dialog_id != owner_dialog_id) {
-        LOG(ERROR) << "Receive game score with " << reply_to_message_id << " in " << owner_dialog_id << " in another "
-                   << reply_in_dialog_id;
-        reply_to_message_id = MessageId();
-        reply_in_dialog_id = DialogId();
-      }
+      auto reply_to_message_id = replied_message_info.get_same_chat_reply_to_message_id(true);
       if (!reply_to_message_id.is_valid()) {
         // possible in basic groups
         LOG(INFO) << "Receive game score with " << reply_to_message_id << " in " << owner_dialog_id;
@@ -5501,20 +6165,20 @@ unique_ptr<MessageContent> get_action_message_content(Td *td, tl_object_ptr<tele
         break;
       }
       auto action = move_tl_object_as<telegram_api::messageActionPaymentSent>(action_ptr);
-      if (!reply_to_message_id.is_valid()) {
-        if (reply_to_message_id != MessageId()) {
-          LOG(ERROR) << "Receive succesful payment message with " << reply_to_message_id << " in " << owner_dialog_id;
+      auto message_full_id = replied_message_info.get_reply_message_full_id(DialogId(), true);
+      if (!message_full_id.get_message_id().is_valid()) {
+        if (message_full_id.get_message_id() != MessageId()) {
+          LOG(ERROR) << "Receive successful payment message with " << message_full_id << " in " << owner_dialog_id;
         }
-        reply_in_dialog_id = DialogId();
-        reply_to_message_id = MessageId();
+        message_full_id = {};
       }
       if (action->total_amount_ <= 0 || !check_currency_amount(action->total_amount_)) {
         LOG(ERROR) << "Receive invalid total amount " << action->total_amount_;
         action->total_amount_ = 0;
       }
       return td::make_unique<MessagePaymentSuccessful>(
-          reply_in_dialog_id, reply_to_message_id, std::move(action->currency_), action->total_amount_,
-          std::move(action->invoice_slug_), action->recurring_used_, action->recurring_init_);
+          message_full_id.get_dialog_id(), message_full_id.get_message_id(), std::move(action->currency_),
+          action->total_amount_, std::move(action->invoice_slug_), action->recurring_used_, action->recurring_init_);
     }
     case telegram_api::messageActionPaymentSentMe::ID: {
       if (!td->auth_manager_->is_bot()) {
@@ -5711,33 +6375,52 @@ unique_ptr<MessageContent> get_action_message_content(Td *td, tl_object_ptr<tele
       if (!background_info.is_valid()) {
         break;
       }
-      return make_unique<MessageSetBackground>(MessageId(), std::move(background_info));
-    }
-    case telegram_api::messageActionSetSameChatWallPaper::ID: {
-      if (reply_in_dialog_id.is_valid() && reply_in_dialog_id != owner_dialog_id) {
-        LOG(ERROR) << "Receive old background message with " << reply_to_message_id << " in " << owner_dialog_id
-                   << " in another " << reply_in_dialog_id;
+      auto reply_to_message_id = replied_message_info.get_same_chat_reply_to_message_id(true);
+      if (!reply_to_message_id.is_valid() || !action->same_) {
         reply_to_message_id = MessageId();
-        reply_in_dialog_id = DialogId();
       }
-      auto action = move_tl_object_as<telegram_api::messageActionSetSameChatWallPaper>(action_ptr);
-      BackgroundInfo background_info(td, std::move(action->wallpaper_));
-      if (!background_info.is_valid()) {
-        break;
+      return make_unique<MessageSetBackground>(reply_to_message_id, std::move(background_info), action->for_both_);
+    }
+    case telegram_api::messageActionGiveawayLaunch::ID:
+      return make_unique<MessageGiveawayLaunch>();
+    case telegram_api::messageActionGiftCode::ID: {
+      auto action = move_tl_object_as<telegram_api::messageActionGiftCode>(action_ptr);
+      DialogId dialog_id;
+      if (action->boost_peer_ != nullptr) {
+        dialog_id = DialogId(action->boost_peer_);
+        if (!dialog_id.is_valid()) {
+          LOG(ERROR) << "Receive invalid " << oneline(to_string(action));
+          break;
+        }
+        if (dialog_id.get_type() != DialogType::User) {
+          td->messages_manager_->force_create_dialog(dialog_id, "messageActionGiftCode", true);
+        }
       }
-      return make_unique<MessageSetBackground>(reply_to_message_id, std::move(background_info));
+      return td::make_unique<MessageGiftCode>(dialog_id, action->months_, action->via_giveaway_, action->unclaimed_,
+                                              std::move(action->slug_));
+    }
+    case telegram_api::messageActionGiveawayResults::ID: {
+      auto action = move_tl_object_as<telegram_api::messageActionGiveawayResults>(action_ptr);
+      auto reply_to_message_id = replied_message_info.get_same_chat_reply_to_message_id(true);
+      if (!reply_to_message_id.is_valid() && reply_to_message_id != MessageId()) {
+        LOG(ERROR) << "Receive giveaway results message with " << reply_to_message_id << " in " << owner_dialog_id;
+        reply_to_message_id = MessageId();
+      }
+      return td::make_unique<MessageGiveawayResults>(reply_to_message_id, action->winners_count_,
+                                                     action->unclaimed_count_);
     }
     default:
       UNREACHABLE();
   }
   // explicit empty or wrong action
-  return make_unique<MessageText>(FormattedText(), WebPageId());
+  return td::make_unique<MessageText>(FormattedText(), WebPageId(), false, false, false, string());
 }
 
 tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageContent *content, Td *td,
                                                                  DialogId dialog_id, int32 message_date,
                                                                  bool is_content_secret, bool skip_bot_commands,
-                                                                 int32 max_media_timestamp) {
+                                                                 int32 max_media_timestamp, bool invert_media,
+                                                                 bool disable_web_page_preview) {
   CHECK(content != nullptr);
   switch (content->get_type()) {
     case MessageContentType::Animation: {
@@ -5773,7 +6456,7 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
     }
     case MessageContentType::LiveLocation: {
       const auto *m = static_cast<const MessageLiveLocation *>(content);
-      auto passed = max(G()->unix_time_cached() - message_date, 0);
+      auto passed = max(G()->unix_time() - message_date, 0);
       auto expires_in = max(0, m->period - passed);
       auto heading = expires_in == 0 ? 0 : m->heading;
       auto proximity_alert_radius = expires_in == 0 ? 0 : m->proximity_alert_radius;
@@ -5813,9 +6496,26 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
           return td_api::make_object<td_api::messageAnimatedEmoji>(std::move(animated_emoji), m->text.text);
         }
       }
+      auto web_page = td->web_pages_manager_->get_web_page_object(
+          m->web_page_id, m->force_small_media, m->force_large_media, m->skip_web_page_confirmation, invert_media);
+      if (web_page != nullptr && !web_page->skip_confirmation_ && is_visible_url(m->text, web_page->url_)) {
+        web_page->skip_confirmation_ = true;
+      }
+      if (web_page == nullptr && get_first_url(m->text).empty()) {
+        disable_web_page_preview = false;
+      } else if (disable_web_page_preview && web_page != nullptr) {
+        LOG(ERROR) << "Have " << m->web_page_id << " in a message with link preview disabled";
+        web_page = nullptr;
+      }
+      td_api::object_ptr<td_api::linkPreviewOptions> link_preview_options;
+      if (disable_web_page_preview || !m->web_page_url.empty() || m->force_small_media || m->force_large_media ||
+          invert_media) {
+        link_preview_options = td_api::make_object<td_api::linkPreviewOptions>(
+            disable_web_page_preview, m->web_page_url, m->force_small_media, m->force_large_media, invert_media);
+      }
       return make_tl_object<td_api::messageText>(
-          get_formatted_text_object(m->text, skip_bot_commands, max_media_timestamp),
-          td->web_pages_manager_->get_web_page_object(m->web_page_id));
+          get_formatted_text_object(m->text, skip_bot_commands, max_media_timestamp), std::move(web_page),
+          std::move(link_preview_options));
     }
     case MessageContentType::Unsupported:
       return make_tl_object<td_api::messageUnsupported>();
@@ -5942,7 +6642,8 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
     }
     case MessageContentType::WebsiteConnected: {
       const auto *m = static_cast<const MessageWebsiteConnected *>(content);
-      return make_tl_object<td_api::messageWebsiteConnected>(m->domain_name);
+      return td_api::make_object<td_api::messageBotWriteAccessAllowed>(
+          td_api::make_object<td_api::botWriteAccessAllowReasonConnectedWebsite>(m->domain_name));
     }
     case MessageContentType::PassportDataSent: {
       const auto *m = static_cast<const MessagePassportDataSent *>(content);
@@ -6037,7 +6738,8 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
       return make_tl_object<td_api::messageSuggestProfilePhoto>(std::move(photo));
     }
     case MessageContentType::WriteAccessAllowed:
-      return make_tl_object<td_api::messageBotWriteAccessAllowed>(nullptr, false);
+      return td_api::make_object<td_api::messageBotWriteAccessAllowed>(
+          td_api::make_object<td_api::botWriteAccessAllowReasonAddedToAttachmentMenu>());
     case MessageContentType::RequestedDialog: {
       const auto *m = static_cast<const MessageRequestedDialog *>(content);
       if (m->dialog_id.get_type() == DialogType::User) {
@@ -6059,12 +6761,13 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
     }
     case MessageContentType::WebViewWriteAccessAllowed: {
       const auto *m = static_cast<const MessageWebViewWriteAccessAllowed *>(content);
-      return td_api::make_object<td_api::messageBotWriteAccessAllowed>(m->web_app.get_web_app_object(td), false);
+      return td_api::make_object<td_api::messageBotWriteAccessAllowed>(
+          td_api::make_object<td_api::botWriteAccessAllowReasonLaunchedWebApp>(m->web_app.get_web_app_object(td)));
     }
     case MessageContentType::SetBackground: {
       const auto *m = static_cast<const MessageSetBackground *>(content);
-      return td_api::make_object<td_api::messageChatSetBackground>(m->old_message_id.get(),
-                                                                   m->background_info.get_chat_background_object(td));
+      return td_api::make_object<td_api::messageChatSetBackground>(
+          m->old_message_id.get(), m->background_info.get_chat_background_object(td), !m->for_both);
     }
     case MessageContentType::Story: {
       const auto *m = static_cast<const MessageStory *>(content);
@@ -6073,7 +6776,30 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
           m->story_full_id.get_story_id().get(), m->via_mention);
     }
     case MessageContentType::WriteAccessAllowedByRequest:
-      return make_tl_object<td_api::messageBotWriteAccessAllowed>(nullptr, true);
+      return td_api::make_object<td_api::messageBotWriteAccessAllowed>(
+          td_api::make_object<td_api::botWriteAccessAllowReasonAcceptedRequest>());
+    case MessageContentType::GiftCode: {
+      const auto *m = static_cast<const MessageGiftCode *>(content);
+      return td_api::make_object<td_api::messagePremiumGiftCode>(
+          m->creator_dialog_id.is_valid()
+              ? get_message_sender_object(td, m->creator_dialog_id, "messagePremiumGiftCode")
+              : nullptr,
+          m->via_giveaway, m->is_unclaimed, m->months,
+          td->stickers_manager_->get_premium_gift_sticker_object(m->months), m->code);
+    }
+    case MessageContentType::Giveaway: {
+      const auto *m = static_cast<const MessageGiveaway *>(content);
+      return td_api::make_object<td_api::messagePremiumGiveaway>(
+          m->giveaway_parameters.get_premium_giveaway_parameters_object(td), m->quantity, m->months,
+          td->stickers_manager_->get_premium_gift_sticker_object(m->months));
+    }
+    case MessageContentType::GiveawayLaunch:
+      return td_api::make_object<td_api::messagePremiumGiveawayCreated>();
+    case MessageContentType::GiveawayResults: {
+      const auto *m = static_cast<const MessageGiveawayResults *>(content);
+      return td_api::make_object<td_api::messagePremiumGiveawayCompleted>(m->giveaway_message_id.get(), m->winner_count,
+                                                                          m->unclaimed_count);
+    }
     default:
       UNREACHABLE();
       return nullptr;
@@ -6319,6 +7045,7 @@ FileId get_message_content_thumbnail_file_id(const MessageContent *content, cons
 }
 
 vector<FileId> get_message_content_file_ids(const MessageContent *content, const Td *td) {
+  CHECK(content != nullptr);
   switch (content->get_type()) {
     case MessageContentType::Photo:
       return photo_get_file_ids(static_cast<const MessagePhoto *>(content)->photo);
@@ -6500,6 +7227,10 @@ string get_message_content_search_text(const Td *td, const MessageContent *conte
     case MessageContentType::WebViewWriteAccessAllowed:
     case MessageContentType::SetBackground:
     case MessageContentType::WriteAccessAllowedByRequest:
+    case MessageContentType::GiftCode:
+    case MessageContentType::Giveaway:
+    case MessageContentType::GiveawayLaunch:
+    case MessageContentType::GiveawayResults:
       return string();
     default:
       UNREACHABLE();
@@ -6524,7 +7255,7 @@ bool need_poll_message_content_extended_media(const MessageContent *content) {
   return static_cast<const MessageInvoice *>(content)->input_invoice.need_poll_extended_media();
 }
 
-void get_message_content_animated_emoji_click_sticker(const MessageContent *content, FullMessageId full_message_id,
+void get_message_content_animated_emoji_click_sticker(const MessageContent *content, MessageFullId message_full_id,
                                                       Td *td, Promise<td_api::object_ptr<td_api::sticker>> &&promise) {
   if (content->get_type() != MessageContentType::Text) {
     return promise.set_error(Status::Error(400, "Message is not an animated emoji message"));
@@ -6534,10 +7265,10 @@ void get_message_content_animated_emoji_click_sticker(const MessageContent *cont
   if (!can_be_animated_emoji(text)) {
     return promise.set_error(Status::Error(400, "Message is not an animated emoji message"));
   }
-  td->stickers_manager_->get_animated_emoji_click_sticker(text.text, full_message_id, std::move(promise));
+  td->stickers_manager_->get_animated_emoji_click_sticker(text.text, message_full_id, std::move(promise));
 }
 
-void on_message_content_animated_emoji_clicked(const MessageContent *content, FullMessageId full_message_id, Td *td,
+void on_message_content_animated_emoji_clicked(const MessageContent *content, MessageFullId message_full_id, Td *td,
                                                string &&emoji, string &&data) {
   if (content->get_type() != MessageContentType::Text) {
     return;
@@ -6548,7 +7279,7 @@ void on_message_content_animated_emoji_clicked(const MessageContent *content, Fu
   if (!text.entities.empty() || remove_emoji_modifiers(text.text) != emoji) {
     return;
   }
-  auto error = td->stickers_manager_->on_animated_emoji_message_clicked(std::move(emoji), full_message_id, data);
+  auto error = td->stickers_manager_->on_animated_emoji_message_clicked(std::move(emoji), message_full_id, data);
   if (error.is_error()) {
     LOG(WARNING) << "Failed to process animated emoji click with data \"" << data << "\": " << error;
   }
@@ -6634,6 +7365,7 @@ void update_failed_to_send_message_content(Td *td, unique_ptr<MessageContent> &c
 }
 
 void add_message_content_dependencies(Dependencies &dependencies, const MessageContent *message_content, bool is_bot) {
+  CHECK(message_content != nullptr);
   switch (message_content->get_type()) {
     case MessageContentType::Text: {
       const auto *content = static_cast<const MessageText *>(message_content);
@@ -6807,6 +7539,20 @@ void add_message_content_dependencies(Dependencies &dependencies, const MessageC
     }
     case MessageContentType::WriteAccessAllowedByRequest:
       break;
+    case MessageContentType::GiftCode: {
+      const auto *content = static_cast<const MessageGiftCode *>(message_content);
+      dependencies.add_message_sender_dependencies(content->creator_dialog_id);
+      break;
+    }
+    case MessageContentType::Giveaway: {
+      const auto *content = static_cast<const MessageGiveaway *>(message_content);
+      content->giveaway_parameters.add_dependencies(dependencies);
+      break;
+    }
+    case MessageContentType::GiveawayLaunch:
+      break;
+    case MessageContentType::GiveawayResults:
+      break;
     default:
       UNREACHABLE();
       break;
@@ -6909,30 +7655,6 @@ void update_used_hashtags(Td *td, const MessageContent *content) {
     auto to = ptr;
 
     send_closure(td->hashtag_hints_, &HashtagHints::hashtag_used, Slice(from + 1, to).str());
-  }
-}
-
-void recognize_message_content_speech(Td *td, const MessageContent *content, FullMessageId full_message_id,
-                                      Promise<Unit> &&promise) {
-  switch (content->get_type()) {
-    case MessageContentType::VideoNote:
-      return td->video_notes_manager_->recognize_speech(full_message_id, std::move(promise));
-    case MessageContentType::VoiceNote:
-      return td->voice_notes_manager_->recognize_speech(full_message_id, std::move(promise));
-    default:
-      return promise.set_error(Status::Error(400, "Invalid message specified"));
-  }
-}
-
-void rate_message_content_speech_recognition(Td *td, const MessageContent *content, FullMessageId full_message_id,
-                                             bool is_good, Promise<Unit> &&promise) {
-  switch (content->get_type()) {
-    case MessageContentType::VideoNote:
-      return td->video_notes_manager_->rate_speech_recognition(full_message_id, is_good, std::move(promise));
-    case MessageContentType::VoiceNote:
-      return td->voice_notes_manager_->rate_speech_recognition(full_message_id, is_good, std::move(promise));
-    default:
-      return promise.set_error(Status::Error(400, "Invalid message specified"));
   }
 }
 

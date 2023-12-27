@@ -8,7 +8,7 @@
 
 #include "td/telegram/ChannelId.h"
 #include "td/telegram/DialogId.h"
-#include "td/telegram/FullMessageId.h"
+#include "td/telegram/MessageFullId.h"
 #include "td/telegram/MessageId.h"
 #include "td/telegram/MinChannel.h"
 #include "td/telegram/ReactionType.h"
@@ -63,9 +63,9 @@ class MessageReaction {
 
   void unset_as_chosen();
 
-  void add_recent_chooser_dialog_id(DialogId dialog_id);
+  void add_my_recent_chooser_dialog_id(DialogId dialog_id);
 
-  bool remove_recent_chooser_dialog_id();
+  bool remove_my_recent_chooser_dialog_id();
 
   void update_from(const MessageReaction &old_reaction);
 
@@ -167,9 +167,10 @@ struct MessageReactions {
 
   void update_from(const MessageReactions &old_reactions);
 
-  bool add_reaction(const ReactionType &reaction_type, bool is_big, DialogId my_dialog_id, bool have_recent_choosers);
+  bool add_my_reaction(const ReactionType &reaction_type, bool is_big, DialogId my_dialog_id,
+                       bool have_recent_choosers);
 
-  bool remove_reaction(const ReactionType &reaction_type, DialogId my_dialog_id);
+  bool remove_my_reaction(const ReactionType &reaction_type, DialogId my_dialog_id);
 
   void sort_reactions(const FlatHashMap<ReactionType, size_t, ReactionTypeHash> &active_reaction_pos);
 
@@ -203,7 +204,7 @@ struct MessageReactions {
   void parse(ParserT &parser);
 
  private:
-  bool do_remove_reaction(const ReactionType &reaction_type);
+  bool do_remove_my_reaction(const ReactionType &reaction_type);
 };
 
 StringBuilder &operator<<(StringBuilder &string_builder, const MessageReactions &reactions);
@@ -212,13 +213,13 @@ StringBuilder &operator<<(StringBuilder &string_builder, const unique_ptr<Messag
 
 void reload_message_reactions(Td *td, DialogId dialog_id, vector<MessageId> &&message_ids);
 
-void send_message_reaction(Td *td, FullMessageId full_message_id, vector<ReactionType> reaction_types, bool is_big,
+void send_message_reaction(Td *td, MessageFullId message_full_id, vector<ReactionType> reaction_types, bool is_big,
                            bool add_to_recent, Promise<Unit> &&promise);
 
-void get_message_added_reactions(Td *td, FullMessageId full_message_id, ReactionType reaction_type, string offset,
+void get_message_added_reactions(Td *td, MessageFullId message_full_id, ReactionType reaction_type, string offset,
                                  int32 limit, Promise<td_api::object_ptr<td_api::addedReactions>> &&promise);
 
-void report_message_reactions(Td *td, FullMessageId full_message_id, DialogId chooser_dialog_id,
+void report_message_reactions(Td *td, MessageFullId message_full_id, DialogId chooser_dialog_id,
                               Promise<Unit> &&promise);
 
 }  // namespace td

@@ -9,6 +9,7 @@
 #include "td/telegram/AccessRights.h"
 #include "td/telegram/ContactsManager.h"
 #include "td/telegram/DialogId.h"
+#include "td/telegram/GiveawayParameters.h"
 #include "td/telegram/Global.h"
 #include "td/telegram/InputInvoice.h"
 #include "td/telegram/MessageEntity.h"
@@ -17,6 +18,7 @@
 #include "td/telegram/misc.h"
 #include "td/telegram/PasswordManager.h"
 #include "td/telegram/Photo.h"
+#include "td/telegram/Premium.h"
 #include "td/telegram/ServerMessageId.h"
 #include "td/telegram/Td.h"
 #include "td/telegram/telegram_api.h"
@@ -66,6 +68,55 @@ Result<InputInvoiceInfo> get_input_invoice_info(Td *td, td_api::object_ptr<td_ap
     case td_api::inputInvoiceName::ID: {
       auto invoice = td_api::move_object_as<td_api::inputInvoiceName>(input_invoice);
       result.input_invoice_ = make_tl_object<telegram_api::inputInvoiceSlug>(invoice->name_);
+      break;
+    }
+    case td_api::inputInvoiceTelegram::ID: {
+      auto invoice = td_api::move_object_as<td_api::inputInvoiceTelegram>(input_invoice);
+      if (invoice->purpose_ == nullptr) {
+        return Status::Error(400, "Purpose must be non-empty");
+      }
+      switch (invoice->purpose_->get_id()) {
+        case td_api::telegramPaymentPurposePremiumGiftCodes::ID: {
+          auto p = static_cast<const td_api::telegramPaymentPurposePremiumGiftCodes *>(invoice->purpose_.get());
+          vector<telegram_api::object_ptr<telegram_api::InputUser>> input_users;
+          for (auto user_id : p->user_ids_) {
+            TRY_RESULT(input_user, td->contacts_manager_->get_input_user(UserId(user_id)));
+            input_users.push_back(std::move(input_user));
+          }
+          if (p->amount_ <= 0 || !check_currency_amount(p->amount_)) {
+            return Status::Error(400, "Invalid amount of the currency specified");
+          }
+          DialogId boosted_dialog_id(p->boosted_chat_id_);
+          TRY_RESULT(boost_input_peer, get_boost_input_peer(td, boosted_dialog_id));
+          int32 flags = 0;
+          if (boost_input_peer != nullptr) {
+            flags |= telegram_api::inputStorePaymentPremiumGiftCode::BOOST_PEER_MASK;
+          }
+          auto option = telegram_api::make_object<telegram_api::premiumGiftCodeOption>(
+              0, static_cast<int32>(input_users.size()), p->month_count_, string(), 0, p->currency_, p->amount_);
+          auto purpose = telegram_api::make_object<telegram_api::inputStorePaymentPremiumGiftCode>(
+              flags, std::move(input_users), std::move(boost_input_peer), p->currency_, p->amount_);
+
+          result.dialog_id_ = boosted_dialog_id;
+          result.input_invoice_ = telegram_api::make_object<telegram_api::inputInvoicePremiumGiftCode>(
+              std::move(purpose), std::move(option));
+          break;
+        }
+        case td_api::telegramPaymentPurposePremiumGiveaway::ID: {
+          auto p = static_cast<const td_api::telegramPaymentPurposePremiumGiveaway *>(invoice->purpose_.get());
+          if (p->amount_ <= 0 || !check_currency_amount(p->amount_)) {
+            return Status::Error(400, "Invalid amount of the currency specified");
+          }
+          TRY_RESULT(parameters, GiveawayParameters::get_giveaway_parameters(td, p->parameters_.get()));
+          auto option = telegram_api::make_object<telegram_api::premiumGiftCodeOption>(
+              0, p->winner_count_, p->month_count_, string(), 0, p->currency_, p->amount_);
+          result.input_invoice_ = telegram_api::make_object<telegram_api::inputInvoicePremiumGiftCode>(
+              parameters.get_input_store_payment_premium_giveaway(td, p->currency_, p->amount_), std::move(option));
+          break;
+        }
+        default:
+          UNREACHABLE();
+      }
       break;
     }
     default:
@@ -193,11 +244,18 @@ static tl_object_ptr<td_api::invoice> convert_invoice(tl_object_ptr<telegram_api
     invoice->suggested_tip_amounts_.resize(4);
   }
 
+  string recurring_terms_url;
+  string terms_url;
+  if (invoice->recurring_) {
+    recurring_terms_url = std::move(invoice->terms_url_);
+  } else {
+    terms_url = std::move(invoice->terms_url_);
+  }
   return make_tl_object<td_api::invoice>(std::move(invoice->currency_), std::move(labeled_prices),
                                          invoice->max_tip_amount_, std::move(invoice->suggested_tip_amounts_),
-                                         std::move(invoice->recurring_terms_url_), is_test, need_name,
-                                         need_phone_number, need_email_address, need_shipping_address,
-                                         send_phone_number_to_provider, send_email_address_to_provider, is_flexible);
+                                         recurring_terms_url, terms_url, is_test, need_name, need_phone_number,
+                                         need_email_address, need_shipping_address, send_phone_number_to_provider,
+                                         send_email_address_to_provider, is_flexible);
 }
 
 static tl_object_ptr<td_api::PaymentProvider> convert_payment_provider(
@@ -856,12 +914,12 @@ void send_payment_form(Td *td, td_api::object_ptr<td_api::InputInvoice> &&input_
              std::move(input_credentials), tip_amount);
 }
 
-void get_payment_receipt(Td *td, FullMessageId full_message_id,
+void get_payment_receipt(Td *td, MessageFullId message_full_id,
                          Promise<tl_object_ptr<td_api::paymentReceipt>> &&promise) {
   TRY_RESULT_PROMISE(promise, server_message_id,
-                     td->messages_manager_->get_payment_successful_message_id(full_message_id));
+                     td->messages_manager_->get_payment_successful_message_id(message_full_id));
   td->create_handler<GetPaymentReceiptQuery>(std::move(promise))
-      ->send(full_message_id.get_dialog_id(), server_message_id);
+      ->send(message_full_id.get_dialog_id(), server_message_id);
 }
 
 void get_saved_order_info(Td *td, Promise<tl_object_ptr<td_api::orderInfo>> &&promise) {

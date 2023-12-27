@@ -250,6 +250,7 @@ class messages_dhConfig final {
     TlStoreString::store(random_, s);
   }
 };
+const int32 messages_dhConfig::ID;
 
 class encryptedChat final {
  public:
@@ -301,6 +302,7 @@ class encryptedChat final {
     TlStoreBinary::store(key_fingerprint_, s);
   }
 };
+const int32 encryptedChat::ID;
 
 class messages_sentEncryptedMessage final {
  public:
@@ -308,7 +310,7 @@ class messages_sentEncryptedMessage final {
 
   messages_sentEncryptedMessage() = default;
 
-  explicit messages_sentEncryptedMessage(int32 date) : date_(date_) {
+  explicit messages_sentEncryptedMessage(int32 date) : date_(date) {
   }
 
   static const int32 ID = 1443858741;

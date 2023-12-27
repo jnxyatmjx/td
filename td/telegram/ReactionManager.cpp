@@ -25,8 +25,6 @@
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/Status.h"
 
-#include <algorithm>
-
 namespace td {
 
 class GetAvailableReactionsQuery final : public Td::ResultHandler {
@@ -240,7 +238,7 @@ td_api::object_ptr<td_api::availableReactions> ReactionManager::get_sorted_avail
   auto top_reactions = top_reactions_.reaction_types_;
   LOG(INFO) << "Have available reactions " << available_reactions << " to be sorted by top reactions " << top_reactions
             << " and recent reactions " << recent_reactions;
-  if (active_reactions.allow_custom_ && active_reactions.allow_all_) {
+  if (active_reactions.allow_all_custom_ && active_reactions.allow_all_regular_) {
     for (auto &reaction_type : recent_reactions) {
       if (reaction_type.is_custom_reaction()) {
         show_premium = true;
@@ -275,7 +273,7 @@ td_api::object_ptr<td_api::availableReactions> ReactionManager::get_sorted_avail
         }
         reaction_objects.push_back(
             td_api::make_object<td_api::availableReaction>(reaction_type.get_reaction_type_object(), false));
-      } else if (reaction_type.is_custom_reaction() && available_reactions.allow_custom_ &&
+      } else if (reaction_type.is_custom_reaction() && available_reactions.allow_all_custom_ &&
                  added_custom_reaction_types.insert(reaction_type).second) {
         // add implicitly available custom reaction
         reaction_objects.push_back(
@@ -322,13 +320,13 @@ td_api::object_ptr<td_api::availableReactions> ReactionManager::get_sorted_avail
 
   return td_api::make_object<td_api::availableReactions>(
       std::move(top_reaction_objects), std::move(recent_reaction_objects), std::move(popular_reaction_objects),
-      available_reactions.allow_custom_);
+      available_reactions.allow_all_custom_);
 }
 
 td_api::object_ptr<td_api::availableReactions> ReactionManager::get_available_reactions(int32 row_size) {
   ChatReactions available_reactions;
   available_reactions.reaction_types_ = active_reaction_types_;
-  available_reactions.allow_custom_ = true;
+  available_reactions.allow_all_custom_ = true;
   return get_sorted_available_reactions(std::move(available_reactions), ChatReactions(true, true), row_size);
 }
 
@@ -340,16 +338,7 @@ void ReactionManager::add_recent_reaction(const ReactionType &reaction_type) {
     return;
   }
 
-  auto it = std::find(reactions.begin(), reactions.end(), reaction_type);
-  if (it == reactions.end()) {
-    if (static_cast<int32>(reactions.size()) == MAX_RECENT_REACTIONS) {
-      reactions.back() = reaction_type;
-    } else {
-      reactions.push_back(reaction_type);
-    }
-    it = reactions.end() - 1;
-  }
-  std::rotate(reactions.begin(), it, it + 1);
+  add_to_top(reactions, MAX_RECENT_REACTIONS, reaction_type);
 
   recent_reactions_.hash_ = get_reaction_types_hash(reactions);
 }
@@ -638,9 +627,7 @@ void ReactionManager::on_get_recent_reactions(tl_object_ptr<telegram_api::messag
 
   CHECK(constructor_id == telegram_api::messages_reactions::ID);
   auto reactions = move_tl_object_as<telegram_api::messages_reactions>(reactions_ptr);
-  auto new_reaction_types = transform(
-      reactions->reactions_,
-      [](const telegram_api::object_ptr<telegram_api::Reaction> &reaction) { return ReactionType(reaction); });
+  auto new_reaction_types = ReactionType::get_reaction_types(reactions->reactions_);
   if (new_reaction_types == recent_reactions_.reaction_types_ && recent_reactions_.hash_ == reactions->hash_) {
     LOG(INFO) << "Top reactions are not modified";
     return;
@@ -674,9 +661,7 @@ void ReactionManager::on_get_top_reactions(tl_object_ptr<telegram_api::messages_
 
   CHECK(constructor_id == telegram_api::messages_reactions::ID);
   auto reactions = move_tl_object_as<telegram_api::messages_reactions>(reactions_ptr);
-  auto new_reaction_types = transform(
-      reactions->reactions_,
-      [](const telegram_api::object_ptr<telegram_api::Reaction> &reaction) { return ReactionType(reaction); });
+  auto new_reaction_types = ReactionType::get_reaction_types(reactions->reactions_);
   if (new_reaction_types == top_reactions_.reaction_types_ && top_reactions_.hash_ == reactions->hash_) {
     LOG(INFO) << "Top reactions are not modified";
     return;
@@ -688,12 +673,7 @@ void ReactionManager::on_get_top_reactions(tl_object_ptr<telegram_api::messages_
 }
 
 bool ReactionManager::is_active_reaction(const ReactionType &reaction_type) const {
-  for (auto &supported_reaction : reactions_.reactions_) {
-    if (supported_reaction.reaction_type_ == reaction_type) {
-      return supported_reaction.is_active_;
-    }
-  }
-  return false;
+  return td::contains(active_reaction_types_, reaction_type);
 }
 
 void ReactionManager::set_default_reaction(ReactionType reaction_type, Promise<Unit> &&promise) {

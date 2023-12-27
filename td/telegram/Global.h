@@ -30,11 +30,13 @@
 
 namespace td {
 
+class AccountManager;
 class AnimationsManager;
 class AttachMenuManager;
 class AuthManager;
 class AutosaveManager;
 class BackgroundManager;
+class BoostManager;
 class CallManager;
 class ConfigManager;
 class ConnectionCreator;
@@ -66,6 +68,7 @@ class TdDb;
 class TempAuthKeyWatchdog;
 class ThemeManager;
 class TopDialogManager;
+class TranscriptionManager;
 class UpdatesManager;
 class WebPagesManager;
 
@@ -91,8 +94,7 @@ class Global final : public ActorContext {
 
   void log_out(Slice reason);
 
-  void close_all(Promise<> on_finished);
-  void close_and_destroy_all(Promise<> on_finished);
+  void close_all(bool destroy_flag, Promise<> on_finished);
 
   Status init(ActorId<Td> td, unique_ptr<TdDb> td_db_ptr) TD_WARN_UNUSED_RESULT;
 
@@ -145,20 +147,11 @@ class Global final : public ActorContext {
   bool is_server_time_reliable() const {
     return server_time_difference_was_updated_.load(std::memory_order_relaxed);
   }
-  double to_server_time(double now) const {
-    return now + get_server_time_difference();
-  }
   double server_time() const {
-    return to_server_time(Time::now());
-  }
-  double server_time_cached() const {
-    return to_server_time(Time::now_cached());
+    return Time::now() + get_server_time_difference();
   }
   int32 unix_time() const {
     return to_unix_time(server_time());
-  }
-  int32 unix_time_cached() const {
-    return to_unix_time(server_time_cached());
   }
 
   void update_server_time_difference(double diff, bool force);
@@ -182,6 +175,13 @@ class Global final : public ActorContext {
 
   ActorId<Td> td() const {
     return td_;
+  }
+
+  ActorId<AccountManager> account_manager() const {
+    return account_manager_;
+  }
+  void set_account_manager(ActorId<AccountManager> account_manager) {
+    account_manager_ = account_manager;
   }
 
   ActorId<AnimationsManager> animations_manager() const {
@@ -214,6 +214,13 @@ class Global final : public ActorContext {
   }
   void set_background_manager(ActorId<BackgroundManager> background_manager) {
     background_manager_ = background_manager;
+  }
+
+  ActorId<BoostManager> boost_manager() const {
+    return boost_manager_;
+  }
+  void set_boost_manager(ActorId<BoostManager> boost_manager) {
+    boost_manager_ = boost_manager;
   }
 
   ActorId<CallManager> call_manager() const {
@@ -324,6 +331,7 @@ class Global final : public ActorContext {
   void set_option_manager(OptionManager *option_manager) {
     option_manager_ = option_manager;
   }
+  OptionManager *get_option_manager();
 
   ActorId<PasswordManager> password_manager() const {
     return password_manager_;
@@ -386,6 +394,13 @@ class Global final : public ActorContext {
   }
   void set_top_dialog_manager(ActorId<TopDialogManager> top_dialog_manager) {
     top_dialog_manager_ = top_dialog_manager;
+  }
+
+  ActorId<TranscriptionManager> transcription_manager() const {
+    return transcription_manager_;
+  }
+  void set_transcription_manager(ActorId<TranscriptionManager> transcription_manager) {
+    transcription_manager_ = transcription_manager;
   }
 
   ActorId<UpdatesManager> updates_manager() const {
@@ -496,6 +511,10 @@ class Global final : public ActorContext {
 
   static int32 get_retry_after(int32 error_code, Slice error_message);
 
+  static int32 get_retry_after(const Status &error) {
+    return get_retry_after(error.code(), error.message());
+  }
+
   const std::vector<std::shared_ptr<NetStatsCallback>> &get_net_stats_file_callbacks() {
     return net_stats_file_callbacks_;
   }
@@ -517,11 +536,13 @@ class Global final : public ActorContext {
   unique_ptr<TdDb> td_db_;
 
   ActorId<Td> td_;
+  ActorId<AccountManager> account_manager_;
   ActorId<AnimationsManager> animations_manager_;
   ActorId<AttachMenuManager> attach_menu_manager_;
   ActorId<AuthManager> auth_manager_;
   ActorId<AutosaveManager> autosave_manager_;
   ActorId<BackgroundManager> background_manager_;
+  ActorId<BoostManager> boost_manager_;
   ActorId<CallManager> call_manager_;
   ActorId<ConfigManager> config_manager_;
   ActorId<ContactsManager> contacts_manager_;
@@ -546,6 +567,7 @@ class Global final : public ActorContext {
   ActorId<StoryManager> story_manager_;
   ActorId<ThemeManager> theme_manager_;
   ActorId<TopDialogManager> top_dialog_manager_;
+  ActorId<TranscriptionManager> transcription_manager_;
   ActorId<UpdatesManager> updates_manager_;
   ActorId<WebPagesManager> web_pages_manager_;
   ActorOwn<ConnectionCreator> connection_creator_;
@@ -588,8 +610,6 @@ class Global final : public ActorContext {
   int32 to_unix_time(double server_time) const;
 
   const OptionManager *get_option_manager() const;
-
-  OptionManager *get_option_manager();
 
   void do_save_server_time_difference();
 

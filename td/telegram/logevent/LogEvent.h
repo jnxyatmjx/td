@@ -103,6 +103,7 @@ class LogEvent {
     ReadAllDialogReactionsOnServer = 0x124,
     DeleteTopicHistoryOnServer = 0x125,
     ToggleDialogIsTranslatableOnServer = 0x126,
+    ToggleDialogViewAsMessagesOnServer = 0x127,
     GetChannelDifference = 0x140,
     AddMessagePushNotification = 0x200,
     EditMessagePushNotification = 0x201,
@@ -112,6 +113,15 @@ class LogEvent {
     LoadDialogExpiringStories = 0x402,
     SendStory = 0x403,
     EditStory = 0x404,
+    ChangeAuthorizationSettingsOnServer = 0x500,
+    ResetAuthorizationOnServer = 0x501,
+    ResetAuthorizationsOnServer = 0x502,
+    SetDefaultHistoryTtlOnServer = 0x503,
+    SetAccountTtlOnServer = 0x504,
+    SetAuthorizationTtlOnServer = 0x505,
+    ResetWebAuthorizationOnServer = 0x506,
+    ResetWebAuthorizationsOnServer = 0x507,
+    InvalidateSignInCodesOnServer = 0x508,
     ConfigPmcMagic = 0x1f18,
     BinlogPmcMagic = 0x4327
   };

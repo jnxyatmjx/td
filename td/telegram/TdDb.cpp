@@ -125,6 +125,7 @@ Status init_binlog(Binlog &binlog, string path, BinlogKeyValue<Binlog> &binlog_p
       case LogEvent::HandlerType::ReadAllDialogReactionsOnServer:
       case LogEvent::HandlerType::DeleteTopicHistoryOnServer:
       case LogEvent::HandlerType::ToggleDialogIsTranslatableOnServer:
+      case LogEvent::HandlerType::ToggleDialogViewAsMessagesOnServer:
         events.to_messages_manager.push_back(event.clone());
         break;
       case LogEvent::HandlerType::DeleteStoryOnServer:
@@ -143,6 +144,17 @@ Status init_binlog(Binlog &binlog, string path, BinlogKeyValue<Binlog> &binlog_p
         break;
       case LogEvent::HandlerType::SaveAppLog:
         events.save_app_log_events.push_back(event.clone());
+        break;
+      case LogEvent::HandlerType::ChangeAuthorizationSettingsOnServer:
+      case LogEvent::HandlerType::InvalidateSignInCodesOnServer:
+      case LogEvent::HandlerType::ResetAuthorizationOnServer:
+      case LogEvent::HandlerType::ResetAuthorizationsOnServer:
+      case LogEvent::HandlerType::ResetWebAuthorizationOnServer:
+      case LogEvent::HandlerType::ResetWebAuthorizationsOnServer:
+      case LogEvent::HandlerType::SetAccountTtlOnServer:
+      case LogEvent::HandlerType::SetAuthorizationTtlOnServer:
+      case LogEvent::HandlerType::SetDefaultHistoryTtlOnServer:
+        events.to_account_manager.push_back(event.clone());
         break;
       case LogEvent::HandlerType::BinlogPmcMagic:
         binlog_pmc.external_init_handle(event);
@@ -259,17 +271,19 @@ void TdDb::flush_all() {
   binlog_->force_flush();
 }
 
-void TdDb::close_all(Promise<> on_finished) {
-  LOG(INFO) << "Close all databases";
-  do_close(std::move(on_finished), false /*destroy_flag*/);
+void TdDb::close(int32 scheduler_id, bool destroy_flag, Promise<Unit> on_finished) {
+  Scheduler::instance()->run_on_scheduler(scheduler_id,
+                                          [this, destroy_flag, on_finished = std::move(on_finished)](Unit) mutable {
+                                            do_close(destroy_flag, std::move(on_finished));
+                                          });
 }
 
-void TdDb::close_and_destroy_all(Promise<> on_finished) {
-  LOG(INFO) << "Destroy all databases";
-  do_close(std::move(on_finished), true /*destroy_flag*/);
-}
-
-void TdDb::do_close(Promise<> on_finished, bool destroy_flag) {
+void TdDb::do_close(bool destroy_flag, Promise<Unit> on_finished) {
+  if (destroy_flag) {
+    LOG(INFO) << "Destroy all databases";
+  } else {
+    LOG(INFO) << "Close all databases";
+  }
   MultiPromiseActorSafe mpas{"TdDbCloseMultiPromiseActor"};
   mpas.add_promise(PromiseCreator::lambda(
       [promise = std::move(on_finished), sql_connection = std::move(sql_connection_), destroy_flag](Unit) mutable {
@@ -425,6 +439,8 @@ Status TdDb::init_sqlite(const Parameters &parameters, const DbKey &key, const D
     binlog_pmc.erase("dlds_counter");
     binlog_pmc.erase_by_prefix("dlds#");
     binlog_pmc.erase("fetched_marks_as_unread");
+    binlog_pmc.erase_by_prefix("public_channels");
+    binlog_pmc.erase("channels_to_send_stories");
   }
   if (user_version == 0) {
     binlog_pmc.erase("next_contacts_sync_date");
@@ -443,8 +459,10 @@ Status TdDb::init_sqlite(const Parameters &parameters, const DbKey &key, const D
   common_kv_async_ = create_sqlite_key_value_async(common_kv_safe_);
 
   if (was_dialog_db_created_) {
-    get_sqlite_sync_pmc()->erase("calls_db_state");
-    get_sqlite_sync_pmc()->erase("di_active_live_location_messages");
+    auto *sqlite_pmc = get_sqlite_sync_pmc();
+    sqlite_pmc->erase("calls_db_state");
+    sqlite_pmc->erase("di_active_live_location_messages");
+    sqlite_pmc->erase_by_prefix("channel_recommendations");
   }
 
   if (use_dialog_db) {

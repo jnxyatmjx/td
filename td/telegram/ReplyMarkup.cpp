@@ -474,8 +474,7 @@ static Result<KeyboardButton> get_keyboard_button(tl_object_ptr<td_api::keyboard
   KeyboardButton current_button;
   current_button.text = std::move(button->text_);
 
-  int32 button_type_id = button->type_ == nullptr ? td_api::keyboardButtonTypeText::ID : button->type_->get_id();
-  switch (button_type_id) {
+  switch (button->type_ == nullptr ? td_api::keyboardButtonTypeText::ID : button->type_->get_id()) {
     case td_api::keyboardButtonTypeText::ID:
       current_button.type = KeyboardButton::Type::Text;
       break;
@@ -566,8 +565,7 @@ static Result<InlineKeyboardButton> get_inline_keyboard_button(tl_object_ptr<td_
   InlineKeyboardButton current_button;
   current_button.text = std::move(button->text_);
 
-  int32 button_type_id = button->type_->get_id();
-  switch (button_type_id) {
+  switch (button->type_->get_id()) {
     case td_api::inlineKeyboardButtonTypeUrl::ID: {
       auto button_type = move_tl_object_as<td_api::inlineKeyboardButtonTypeUrl>(button->type_);
       auto user_id = LinkManager::get_link_user_id(button_type->url_);
@@ -1173,9 +1171,7 @@ void add_reply_markup_dependencies(Dependencies &dependencies, const ReplyMarkup
   }
   for (auto &row : reply_markup->inline_keyboard) {
     for (auto &button : row) {
-      if (button.user_id.is_valid()) {
-        dependencies.add(button.user_id);
-      }
+      dependencies.add(button.user_id);
     }
   }
 }

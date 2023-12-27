@@ -7,15 +7,16 @@
 #pragma once
 
 #include "td/telegram/BackgroundInfo.h"
+#include "td/telegram/ChannelId.h"
 #include "td/telegram/DialogId.h"
 #include "td/telegram/EncryptedFile.h"
 #include "td/telegram/files/FileId.h"
-#include "td/telegram/FullMessageId.h"
 #include "td/telegram/InputGroupCallId.h"
 #include "td/telegram/logevent/LogEvent.h"
 #include "td/telegram/MessageContentType.h"
 #include "td/telegram/MessageCopyOptions.h"
 #include "td/telegram/MessageEntity.h"
+#include "td/telegram/MessageFullId.h"
 #include "td/telegram/MessageId.h"
 #include "td/telegram/Photo.h"
 #include "td/telegram/ReplyMarkup.h"
@@ -43,10 +44,11 @@ class DialogAction;
 class Game;
 class MultiPromiseActor;
 struct Photo;
+class RepliedMessageInfo;
 class Td;
 class Venue;
 
-// Do not forget to update merge_message_contents when one of the inheritors of this class changes
+// Do not forget to update merge_message_contents and compare_message_contents when one of the inheritors of this class changes
 class MessageContent {
  public:
   MessageContent() = default;
@@ -62,15 +64,17 @@ class MessageContent {
 struct InputMessageContent {
   unique_ptr<MessageContent> content;
   bool disable_web_page_preview = false;
+  bool invert_media = false;
   bool clear_draft = false;
   int32 ttl = 0;
   UserId via_bot_user_id;
   string emoji;
 
-  InputMessageContent(unique_ptr<MessageContent> &&content, bool disable_web_page_preview, bool clear_draft, int32 ttl,
-                      UserId via_bot_user_id, string emoji)
+  InputMessageContent(unique_ptr<MessageContent> &&content, bool disable_web_page_preview, bool invert_media,
+                      bool clear_draft, int32 ttl, UserId via_bot_user_id, string emoji)
       : content(std::move(content))
       , disable_web_page_preview(disable_web_page_preview)
+      , invert_media(invert_media)
       , clear_draft(clear_draft)
       , ttl(ttl)
       , via_bot_user_id(via_bot_user_id)
@@ -82,6 +86,7 @@ struct InlineMessageContent {
   unique_ptr<MessageContent> message_content;
   unique_ptr<ReplyMarkup> message_reply_markup;
   bool disable_web_page_preview;
+  bool invert_media;
 };
 
 void store_message_content(const MessageContent *content, LogEventStorerCalcLength &storer);
@@ -95,7 +100,9 @@ InlineMessageContent create_inline_message_content(Td *td, FileId file_id,
                                                    int32 allowed_media_content_id, Photo *photo, Game *game);
 
 unique_ptr<MessageContent> create_text_message_content(string text, vector<MessageEntity> entities,
-                                                       WebPageId web_page_id);
+                                                       WebPageId web_page_id, bool force_small_media,
+                                                       bool force_large_media, bool skip_confitmation,
+                                                       string &&web_page_url);
 
 unique_ptr<MessageContent> create_contact_registered_message_content();
 
@@ -124,9 +131,13 @@ tl_object_ptr<telegram_api::InputMedia> get_input_media(const MessageContent *co
 tl_object_ptr<telegram_api::InputMedia> get_fake_input_media(Td *td, tl_object_ptr<telegram_api::InputFile> input_file,
                                                              FileId file_id);
 
+tl_object_ptr<telegram_api::InputMedia> get_message_content_input_media_web_page(const Td *td,
+                                                                                 const MessageContent *content);
+
 void delete_message_content_thumbnail(MessageContent *content, Td *td);
 
-Status can_send_message_content(DialogId dialog_id, const MessageContent *content, bool is_forward, const Td *td);
+Status can_send_message_content(DialogId dialog_id, const MessageContent *content, bool is_forward,
+                                bool check_permissions, const Td *td);
 
 bool can_forward_message_content(const MessageContent *content);
 
@@ -138,15 +149,17 @@ StickerType get_message_content_sticker_type(const Td *td, const MessageContent 
 
 MessageId get_message_content_pinned_message_id(const MessageContent *content);
 
-BackgroundInfo get_message_content_background_info(const MessageContent *content);
+BackgroundInfo get_message_content_my_background_info(const MessageContent *content, bool is_outgoing);
 
 string get_message_content_theme_name(const MessageContent *content);
 
-FullMessageId get_message_content_replied_message_id(DialogId dialog_id, const MessageContent *content);
+MessageFullId get_message_content_replied_message_id(DialogId dialog_id, const MessageContent *content);
 
 std::pair<InputGroupCallId, bool> get_message_content_group_call_info(const MessageContent *content);
 
 vector<UserId> get_message_content_min_user_ids(const Td *td, const MessageContent *message_content);
+
+vector<ChannelId> get_message_content_min_channel_ids(const Td *td, const MessageContent *message_content);
 
 vector<UserId> get_message_content_added_user_ids(const MessageContent *content);
 
@@ -166,14 +179,14 @@ void remove_message_content_web_page(MessageContent *content);
 
 bool can_message_content_have_media_timestamp(const MessageContent *content);
 
-void set_message_content_poll_answer(Td *td, const MessageContent *content, FullMessageId full_message_id,
+void set_message_content_poll_answer(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                      vector<int32> &&option_ids, Promise<Unit> &&promise);
 
-void get_message_content_poll_voters(Td *td, const MessageContent *content, FullMessageId full_message_id,
+void get_message_content_poll_voters(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                      int32 option_id, int32 offset, int32 limit,
                                      Promise<td_api::object_ptr<td_api::messageSenders>> &&promise);
 
-void stop_message_content_poll(Td *td, const MessageContent *content, FullMessageId full_message_id,
+void stop_message_content_poll(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                unique_ptr<ReplyMarkup> &&reply_markup, Promise<Unit> &&promise);
 
 void merge_message_contents(Td *td, const MessageContent *old_content, MessageContent *new_content,
@@ -182,13 +195,20 @@ void merge_message_contents(Td *td, const MessageContent *old_content, MessageCo
 
 bool merge_message_content_file_id(Td *td, MessageContent *message_content, FileId new_file_id);
 
-void register_message_content(Td *td, const MessageContent *content, FullMessageId full_message_id, const char *source);
+void compare_message_contents(Td *td, const MessageContent *lhs_content, const MessageContent *rhs_content,
+                              bool &is_content_changed, bool &need_update);
+
+void register_message_content(Td *td, const MessageContent *content, MessageFullId message_full_id, const char *source);
 
 void reregister_message_content(Td *td, const MessageContent *old_content, const MessageContent *new_content,
-                                FullMessageId full_message_id, const char *source);
+                                MessageFullId message_full_id, const char *source);
 
-void unregister_message_content(Td *td, const MessageContent *content, FullMessageId full_message_id,
+void unregister_message_content(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                 const char *source);
+
+void register_reply_message_content(Td *td, const MessageContent *content);
+
+void unregister_reply_message_content(Td *td, const MessageContent *content);
 
 unique_ptr<MessageContent> get_secret_message_content(
     Td *td, string message_text, unique_ptr<EncryptedFile> file,
@@ -198,22 +218,30 @@ unique_ptr<MessageContent> get_secret_message_content(
 
 unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message_text,
                                                tl_object_ptr<telegram_api::MessageMedia> &&media_ptr,
-                                               DialogId owner_dialog_id, bool is_content_read, UserId via_bot_user_id,
-                                               int32 *ttl, bool *disable_web_page_preview, const char *source);
+                                               DialogId owner_dialog_id, int32 message_date, bool is_content_read,
+                                               UserId via_bot_user_id, int32 *ttl, bool *disable_web_page_preview,
+                                               const char *source);
 
-enum class MessageContentDupType : int32 { Send, SendViaBot, Forward, Copy, ServerCopy };
+enum class MessageContentDupType : int32 {
+  Send,        // normal message sending
+  SendViaBot,  // message sending via bot
+  Forward,     // server-side message forward
+  Copy,        // local message copy
+  ServerCopy   // server-side message copy
+};
 
 unique_ptr<MessageContent> dup_message_content(Td *td, DialogId dialog_id, const MessageContent *content,
                                                MessageContentDupType type, MessageCopyOptions &&copy_options);
 
 unique_ptr<MessageContent> get_action_message_content(Td *td, tl_object_ptr<telegram_api::MessageAction> &&action_ptr,
-                                                      DialogId owner_dialog_id, DialogId reply_in_dialog_id,
-                                                      MessageId reply_to_message_id);
+                                                      DialogId owner_dialog_id, int32 message_date,
+                                                      const RepliedMessageInfo &replied_message_info);
 
 tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageContent *content, Td *td,
                                                                  DialogId dialog_id, int32 message_date,
                                                                  bool is_content_secret, bool skip_bot_commands,
-                                                                 int32 max_media_timestamp);
+                                                                 int32 max_media_timestamp, bool invert_media,
+                                                                 bool disable_web_page_preview);
 
 FormattedText *get_message_content_text_mutable(MessageContent *content);
 
@@ -251,10 +279,10 @@ bool update_message_content_extended_media(MessageContent *content,
 
 bool need_poll_message_content_extended_media(const MessageContent *content);
 
-void get_message_content_animated_emoji_click_sticker(const MessageContent *content, FullMessageId full_message_id,
+void get_message_content_animated_emoji_click_sticker(const MessageContent *content, MessageFullId message_full_id,
                                                       Td *td, Promise<td_api::object_ptr<td_api::sticker>> &&promise);
 
-void on_message_content_animated_emoji_clicked(const MessageContent *content, FullMessageId full_message_id, Td *td,
+void on_message_content_animated_emoji_clicked(const MessageContent *content, MessageFullId message_full_id, Td *td,
                                                string &&emoji, string &&data);
 
 bool need_reget_message_content(const MessageContent *content);
@@ -281,11 +309,5 @@ void init_stickers_manager(Td *td);
 void on_dialog_used(TopDialogCategory category, DialogId dialog_id, int32 date);
 
 void update_used_hashtags(Td *td, const MessageContent *content);
-
-void recognize_message_content_speech(Td *td, const MessageContent *content, FullMessageId full_message_id,
-                                      Promise<Unit> &&promise);
-
-void rate_message_content_speech_recognition(Td *td, const MessageContent *content, FullMessageId full_message_id,
-                                             bool is_good, Promise<Unit> &&promise);
 
 }  // namespace td
