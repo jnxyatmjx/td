@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -641,6 +641,8 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::getChatSimilarChatCount &request);
 
+  void on_request(uint64 id, const td_api::openChatSimilarChat &request);
+
   void on_request(uint64 id, const td_api::getTopChats &request);
 
   void on_request(uint64 id, const td_api::removeTopChat &request);
@@ -746,6 +748,8 @@ class Td final : public Actor {
   void on_request(uint64 id, const td_api::addMessageReaction &request);
 
   void on_request(uint64 id, const td_api::removeMessageReaction &request);
+
+  void on_request(uint64 id, const td_api::setMessageReactions &request);
 
   void on_request(uint64 id, td_api::getMessageAddedReactions &request);
 
@@ -1009,7 +1013,11 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::setChatAccentColor &request);
 
+  void on_request(uint64 id, const td_api::setChatProfileAccentColor &request);
+
   void on_request(uint64 id, const td_api::setChatMessageAutoDeleteTime &request);
+
+  void on_request(uint64 id, const td_api::setChatEmojiStatus &request);
 
   void on_request(uint64 id, const td_api::setChatPermissions &request);
 
@@ -1055,11 +1063,17 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::setStoryReaction &request);
 
-  void on_request(uint64 id, td_api::getStoryViewers &request);
+  void on_request(uint64 id, td_api::getStoryInteractions &request);
+
+  void on_request(uint64 id, td_api::getChatStoryInteractions &request);
 
   void on_request(uint64 id, td_api::reportStory &request);
 
   void on_request(uint64 id, const td_api::activateStoryStealthMode &request);
+
+  void on_request(uint64 id, const td_api::getChatBoostLevelFeatures &request);
+
+  void on_request(uint64 id, const td_api::getChatBoostFeatures &request);
 
   void on_request(uint64 id, const td_api::getAvailableChatBoostSlots &request);
 
@@ -1243,7 +1257,11 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::getThemedEmojiStatuses &request);
 
+  void on_request(uint64 id, const td_api::getThemedChatEmojiStatuses &request);
+
   void on_request(uint64 id, const td_api::getDefaultEmojiStatuses &request);
+
+  void on_request(uint64 id, const td_api::getDefaultChatEmojiStatuses &request);
 
   void on_request(uint64 id, const td_api::getRecentEmojiStatuses &request);
 
@@ -1423,6 +1441,8 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::getDefaultBackgroundCustomEmojiStickers &request);
 
+  void on_request(uint64 id, const td_api::getDisallowedChatEmojiStatuses &request);
+
   void on_request(uint64 id, const td_api::getFavoriteStickers &request);
 
   void on_request(uint64 id, td_api::addFavoriteSticker &request);
@@ -1501,7 +1521,7 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::getLoginUrl &request);
 
-  void on_request(uint64 id, const td_api::shareUserWithBot &request);
+  void on_request(uint64 id, const td_api::shareUsersWithBot &request);
 
   void on_request(uint64 id, const td_api::shareChatWithBot &request);
 
@@ -1587,17 +1607,19 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::getSupportUser &request);
 
-  void on_request(uint64 id, const td_api::getBackgrounds &request);
+  void on_request(uint64 id, const td_api::getInstalledBackgrounds &request);
 
   void on_request(uint64 id, td_api::getBackgroundUrl &request);
 
   void on_request(uint64 id, td_api::searchBackground &request);
 
-  void on_request(uint64 id, td_api::setBackground &request);
+  void on_request(uint64 id, td_api::setDefaultBackground &request);
 
-  void on_request(uint64 id, const td_api::removeBackground &request);
+  void on_request(uint64 id, const td_api::deleteDefaultBackground &request);
 
-  void on_request(uint64 id, const td_api::resetBackgrounds &request);
+  void on_request(uint64 id, const td_api::removeInstalledBackground &request);
+
+  void on_request(uint64 id, const td_api::resetInstalledBackgrounds &request);
 
   void on_request(uint64 id, td_api::getRecentlyVisitedTMeUrls &request);
 
@@ -1654,8 +1676,6 @@ class Td final : public Actor {
   void on_request(uint64 id, td_api::getDeepLinkInfo &request);
 
   void on_request(uint64 id, const td_api::getApplicationConfig &request);
-
-  void on_request(uint64 id, td_api::addApplicationChangelog &request);
 
   void on_request(uint64 id, td_api::saveApplicationLogEvent &request);
 

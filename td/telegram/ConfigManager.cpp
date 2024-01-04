@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -1495,10 +1495,9 @@ void ConfigManager::process_app_config(tl_object_ptr<telegram_api::JSONValue> &c
       telegram_api::JSONValue *value = key_value->value_.get();
       if (key == "default_emoji_statuses_stickerset_id" || key == "forum_upgrade_participants_min" ||
           key == "getfile_experimental_params" || key == "message_animated_emoji_max" ||
-          key == "reactions_in_chat_max" || key == "stickers_emoji_cache_time" ||
-          key == "stories_export_nopublic_link" || key == "test" || key == "upload_max_fileparts_default" ||
-          key == "upload_max_fileparts_premium" || key == "wallet_blockchain_name" || key == "wallet_config" ||
-          key == "wallet_enabled") {
+          key == "stickers_emoji_cache_time" || key == "stories_export_nopublic_link" || key == "test" ||
+          key == "upload_max_fileparts_default" || key == "upload_max_fileparts_premium" ||
+          key == "wallet_blockchain_name" || key == "wallet_config" || key == "wallet_enabled" || key == "channel_color_level_min") {
         continue;
       }
       if (key == "ignore_restriction_reasons") {
@@ -1941,11 +1940,6 @@ void ConfigManager::process_app_config(tl_object_ptr<telegram_api::JSONValue> &c
         G()->set_option_integer("giveaway_duration_max", get_json_value_int(std::move(key_value->value_), key));
         continue;
       }
-      if (key == "channel_color_level_min") {
-        G()->set_option_integer("channel_custom_accent_color_boost_level_min",
-                                get_json_value_int(std::move(key_value->value_), key));
-        continue;
-      }
       if (key == "boosts_per_sent_gift") {
         G()->set_option_integer("premium_gift_boost_count", get_json_value_int(std::move(key_value->value_), key));
         continue;
@@ -1969,6 +1963,17 @@ void ConfigManager::process_app_config(tl_object_ptr<telegram_api::JSONValue> &c
       }
       if (key == "boosts_channel_level_max") {
         G()->set_option_integer("chat_boost_level_max", max(0, get_json_value_int(std::move(key_value->value_), key)));
+        continue;
+      }
+      if (key == "reactions_in_chat_max") {
+        G()->set_option_integer("chat_available_reaction_count_max",
+                                get_json_value_int(std::move(key_value->value_), key));
+        continue;
+      }
+      if (key == "channel_bg_icon_level_min" || key == "channel_custom_wallpaper_level_min" ||
+          key == "channel_emoji_status_level_min" || key == "channel_profile_bg_icon_level_min" ||
+          key == "channel_wallpaper_level_min") {
+        G()->set_option_integer(key, get_json_value_int(std::move(key_value->value_), key));
         continue;
       }
 

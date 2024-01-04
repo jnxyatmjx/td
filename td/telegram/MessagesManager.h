@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -113,6 +113,7 @@ class Dependencies;
 class DialogActionBar;
 class DialogFilter;
 class DraftMessage;
+class EmojiStatus;
 struct InputMessageContent;
 class MessageContent;
 struct MessageReactions;
@@ -180,8 +181,8 @@ class MessagesManager final : public Actor {
                                          const char *source);
 
   void get_channel_differences_if_needed(
-      telegram_api::object_ptr<telegram_api::stats_publicForwards> &&public_forwards,
-      Promise<telegram_api::object_ptr<telegram_api::stats_publicForwards>> &&promise, const char *source);
+      const vector<const telegram_api::object_ptr<telegram_api::Message> *> &messages, Promise<Unit> &&promise,
+      const char *source);
 
   void on_get_messages(vector<tl_object_ptr<telegram_api::Message>> &&messages, bool is_channel_message,
                        bool is_scheduled, Promise<Unit> &&promise, const char *source);
@@ -229,7 +230,6 @@ class MessagesManager final : public Actor {
                                vector<tl_object_ptr<telegram_api::Message>> &&messages,
                                Promise<td_api::object_ptr<td_api::messages>> &&promise);
 
-  // if message is from_update, flags have_previous and have_next are ignored and must be both true
   MessageFullId on_get_message(tl_object_ptr<telegram_api::Message> message_ptr, bool from_update,
                                bool is_channel_message, bool is_scheduled, const char *source);
 
@@ -479,8 +479,8 @@ class MessagesManager final : public Actor {
 
   void set_dialog_message_ttl(DialogId dialog_id, int32 ttl, Promise<Unit> &&promise);
 
-  void share_dialog_with_bot(MessageFullId message_full_id, int32 button_id, DialogId shared_dialog_id,
-                             bool expect_user, bool only_check, Promise<Unit> &&promise);
+  void share_dialogs_with_bot(MessageFullId message_full_id, int32 button_id, vector<DialogId> shared_dialog_ids,
+                              bool expect_user, bool only_check, Promise<Unit> &&promise);
 
   Result<MessageId> add_local_message(
       DialogId dialog_id, td_api::object_ptr<td_api::MessageSender> &&sender,
@@ -564,6 +564,9 @@ class MessagesManager final : public Actor {
   void set_dialog_accent_color(DialogId dialog_id, AccentColorId accent_color_id,
                                CustomEmojiId background_custom_emoji_id, Promise<Unit> &&promise);
 
+  void set_dialog_profile_accent_color(DialogId dialog_id, AccentColorId profile_accent_color_id,
+                                       CustomEmojiId profile_background_custom_emoji_id, Promise<Unit> &&promise);
+
   void set_dialog_description(DialogId dialog_id, const string &description, Promise<Unit> &&promise);
 
   void set_active_reactions(vector<ReactionType> active_reaction_types);
@@ -571,6 +574,8 @@ class MessagesManager final : public Actor {
   void set_dialog_available_reactions(DialogId dialog_id,
                                       td_api::object_ptr<td_api::ChatAvailableReactions> &&available_reactions_ptr,
                                       Promise<Unit> &&promise);
+
+  void set_dialog_emoji_status(DialogId dialog_id, const EmojiStatus &emoji_status, Promise<Unit> &&promise);
 
   void set_dialog_permissions(DialogId dialog_id, const td_api::object_ptr<td_api::chatPermissions> &permissions,
                               Promise<Unit> &&promise);
@@ -892,9 +897,9 @@ class MessagesManager final : public Actor {
   void on_dialog_bots_updated(DialogId dialog_id, vector<UserId> bot_user_ids, bool from_database);
 
   void on_dialog_photo_updated(DialogId dialog_id);
-  void on_dialog_accent_color_id_updated(DialogId dialog_id);
-  void on_dialog_background_custom_emoji_id_updated(DialogId dialog_id);
+  void on_dialog_accent_colors_updated(DialogId dialog_id);
   void on_dialog_title_updated(DialogId dialog_id);
+  void on_dialog_emoji_status_updated(DialogId dialog_id);
   void on_dialog_usernames_updated(DialogId dialog_id, const Usernames &old_usernames, const Usernames &new_usernames);
   void on_dialog_usernames_received(DialogId dialog_id, const Usernames &usernames, bool from_database);
   void on_dialog_default_permissions_updated(DialogId dialog_id);
@@ -2994,7 +2999,13 @@ class MessagesManager final : public Actor {
 
   CustomEmojiId get_dialog_background_custom_emoji_id(DialogId dialog_id) const;
 
+  int32 get_dialog_profile_accent_color_id_object(DialogId dialog_id) const;
+
+  CustomEmojiId get_dialog_profile_background_custom_emoji_id(DialogId dialog_id) const;
+
   RestrictedRights get_dialog_default_permissions(DialogId dialog_id) const;
+
+  td_api::object_ptr<td_api::emojiStatus> get_dialog_emoji_status_object(DialogId dialog_id) const;
 
   bool get_dialog_has_protected_content(DialogId dialog_id) const;
 

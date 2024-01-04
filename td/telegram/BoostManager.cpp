@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -13,8 +13,10 @@
 #include "td/telegram/LinkManager.h"
 #include "td/telegram/MessageId.h"
 #include "td/telegram/MessagesManager.h"
+#include "td/telegram/OptionManager.h"
 #include "td/telegram/ServerMessageId.h"
 #include "td/telegram/Td.h"
+#include "td/telegram/ThemeManager.h"
 #include "td/telegram/UserId.h"
 
 #include "td/utils/algorithm.h"
@@ -29,7 +31,7 @@ static td_api::object_ptr<td_api::chatBoost> get_chat_boost_object(
   auto source = [&]() -> td_api::object_ptr<td_api::ChatBoostSource> {
     if (boost->giveaway_) {
       UserId user_id(boost->user_id_);
-      if (!user_id.is_valid()) {
+      if (!user_id.is_valid() || boost->unclaimed_) {
         user_id = UserId();
       }
       auto giveaway_message_id = MessageId(ServerMessageId(boost->giveaway_msg_id_));
@@ -338,6 +340,33 @@ BoostManager::BoostManager(Td *td, ActorShared<> parent) : td_(td), parent_(std:
 
 void BoostManager::tear_down() {
   parent_.reset();
+}
+
+td_api::object_ptr<td_api::chatBoostLevelFeatures> BoostManager::get_chat_boost_level_features_object(
+    int32 level) const {
+  int32 actual_level =
+      clamp(level, 0, static_cast<int32>(td_->option_manager_->get_option_integer("chat_boost_level_max")));
+  auto theme_counts = td_->theme_manager_->get_dialog_boost_available_count(actual_level);
+  auto can_set_profile_background_custom_emoji =
+      actual_level >= td_->option_manager_->get_option_integer("channel_profile_bg_icon_level_min");
+  auto can_set_background_custom_emoji =
+      actual_level >= td_->option_manager_->get_option_integer("channel_bg_icon_level_min");
+  auto can_set_emoji_status =
+      actual_level >= td_->option_manager_->get_option_integer("channel_emoji_status_level_min");
+  auto can_set_custom_background =
+      actual_level >= td_->option_manager_->get_option_integer("channel_custom_wallpaper_level_min");
+  return td_api::make_object<td_api::chatBoostLevelFeatures>(
+      level, actual_level, actual_level, theme_counts.title_color_count_, theme_counts.profile_accent_color_count_,
+      can_set_profile_background_custom_emoji, theme_counts.accent_color_count_, can_set_background_custom_emoji,
+      can_set_emoji_status, theme_counts.chat_theme_count_, can_set_custom_background);
+}
+
+td_api::object_ptr<td_api::chatBoostFeatures> BoostManager::get_chat_boost_features_object() const {
+  vector<td_api::object_ptr<td_api::chatBoostLevelFeatures>> features;
+  for (int32 level = 1; level <= 10; level++) {
+    features.push_back(get_chat_boost_level_features_object(level));
+  }
+  return td_api::make_object<td_api::chatBoostFeatures>(std::move(features));
 }
 
 void BoostManager::get_boost_slots(Promise<td_api::object_ptr<td_api::chatBoostSlots>> &&promise) {

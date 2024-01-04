@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -71,7 +71,8 @@ void NetQueryDispatcher::dispatch(NetQueryPtr net_query) {
     } else if (code == NetQuery::Resend) {
       net_query->resend();
     } else if (code < 0 || code == 500 ||
-               (code == 420 && !begins_with(net_query->error().message(), "STORY_SEND_FLOOD_"))) {
+               (code == 420 && !begins_with(net_query->error().message(), "STORY_SEND_FLOOD_") &&
+                !begins_with(net_query->error().message(), "PREMIUM_SUB_ACTIVE_UNTIL_"))) {
       net_query->debug("sent to NetQueryDelayer");
       return send_closure_later(delayer_, &NetQueryDelayer::delay, std::move(net_query));
     }

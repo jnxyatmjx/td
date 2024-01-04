@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -5109,6 +5109,13 @@ void Td::on_request(uint64 id, const td_api::getChatSimilarChatCount &request) {
                                                  std::move(promise));
 }
 
+void Td::on_request(uint64 id, const td_api::openChatSimilarChat &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  contacts_manager_->open_channel_recommended_channel(DialogId(request.chat_id_), DialogId(request.opened_chat_id_),
+                                                      std::move(promise));
+}
+
 void Td::on_request(uint64 id, const td_api::getTopChats &request) {
   CHECK_IS_USER();
   CREATE_REQUEST_PROMISE();
@@ -5487,6 +5494,13 @@ void Td::on_request(uint64 id, const td_api::removeMessageReaction &request) {
   CREATE_OK_REQUEST_PROMISE();
   messages_manager_->remove_message_reaction({DialogId(request.chat_id_), MessageId(request.message_id_)},
                                              ReactionType(request.reaction_type_), std::move(promise));
+}
+
+void Td::on_request(uint64 id, const td_api::setMessageReactions &request) {
+  CHECK_IS_BOT();
+  CREATE_OK_REQUEST_PROMISE();
+  set_message_reactions(this, {DialogId(request.chat_id_), MessageId(request.message_id_)},
+                        ReactionType::get_reaction_types(request.reaction_types_), request.is_big_, std::move(promise));
 }
 
 void Td::on_request(uint64 id, td_api::getMessageAddedReactions &request) {
@@ -6513,11 +6527,26 @@ void Td::on_request(uint64 id, const td_api::setChatAccentColor &request) {
                                              CustomEmojiId(request.background_custom_emoji_id_), std::move(promise));
 }
 
+void Td::on_request(uint64 id, const td_api::setChatProfileAccentColor &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  messages_manager_->set_dialog_profile_accent_color(
+      DialogId(request.chat_id_), AccentColorId(request.profile_accent_color_id_),
+      CustomEmojiId(request.profile_background_custom_emoji_id_), std::move(promise));
+}
+
 void Td::on_request(uint64 id, const td_api::setChatMessageAutoDeleteTime &request) {
   CHECK_IS_USER();
   CREATE_OK_REQUEST_PROMISE();
   messages_manager_->set_dialog_message_ttl(DialogId(request.chat_id_), request.message_auto_delete_time_,
                                             std::move(promise));
+}
+
+void Td::on_request(uint64 id, const td_api::setChatEmojiStatus &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  messages_manager_->set_dialog_emoji_status(DialogId(request.chat_id_), EmojiStatus(request.emoji_status_),
+                                             std::move(promise));
 }
 
 void Td::on_request(uint64 id, const td_api::setChatPermissions &request) {
@@ -6658,13 +6687,23 @@ void Td::on_request(uint64 id, const td_api::setStoryReaction &request) {
                                      std::move(promise));
 }
 
-void Td::on_request(uint64 id, td_api::getStoryViewers &request) {
+void Td::on_request(uint64 id, td_api::getStoryInteractions &request) {
   CHECK_IS_USER();
   CLEAN_INPUT_STRING(request.query_);
   CLEAN_INPUT_STRING(request.offset_);
   CREATE_REQUEST_PROMISE();
-  story_manager_->get_story_viewers(StoryId(request.story_id_), request.query_, request.only_contacts_,
-                                    request.prefer_with_reaction_, request.offset_, request.limit_, std::move(promise));
+  story_manager_->get_story_interactions(StoryId(request.story_id_), request.query_, request.only_contacts_,
+                                         request.prefer_forwards_, request.prefer_with_reaction_, request.offset_,
+                                         request.limit_, std::move(promise));
+}
+
+void Td::on_request(uint64 id, td_api::getChatStoryInteractions &request) {
+  CHECK_IS_USER();
+  CLEAN_INPUT_STRING(request.offset_);
+  CREATE_REQUEST_PROMISE();
+  story_manager_->get_dialog_story_interactions({DialogId(request.story_sender_chat_id_), StoryId(request.story_id_)},
+                                                ReactionType(request.reaction_type_), request.prefer_forwards_,
+                                                request.offset_, request.limit_, std::move(promise));
 }
 
 void Td::on_request(uint64 id, td_api::reportStory &request) {
@@ -6681,6 +6720,18 @@ void Td::on_request(uint64 id, td_api::reportStory &request) {
 void Td::on_request(uint64 id, const td_api::activateStoryStealthMode &request) {
   CREATE_OK_REQUEST_PROMISE();
   story_manager_->activate_stealth_mode(std::move(promise));
+}
+
+void Td::on_request(uint64 id, const td_api::getChatBoostLevelFeatures &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  promise.set_value(boost_manager_->get_chat_boost_level_features_object(request.level_));
+}
+
+void Td::on_request(uint64 id, const td_api::getChatBoostFeatures &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  promise.set_value(boost_manager_->get_chat_boost_features_object());
 }
 
 void Td::on_request(uint64 id, const td_api::getAvailableChatBoostSlots &request) {
@@ -7441,10 +7492,22 @@ void Td::on_request(uint64 id, const td_api::getThemedEmojiStatuses &request) {
   stickers_manager_->get_default_emoji_statuses(false, std::move(promise));
 }
 
+void Td::on_request(uint64 id, const td_api::getThemedChatEmojiStatuses &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  stickers_manager_->get_default_channel_emoji_statuses(false, std::move(promise));
+}
+
 void Td::on_request(uint64 id, const td_api::getDefaultEmojiStatuses &request) {
   CHECK_IS_USER();
   CREATE_REQUEST_PROMISE();
   get_default_emoji_statuses(this, std::move(promise));
+}
+
+void Td::on_request(uint64 id, const td_api::getDefaultChatEmojiStatuses &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  get_default_channel_emoji_statuses(this, std::move(promise));
 }
 
 void Td::on_request(uint64 id, const td_api::getRecentEmojiStatuses &request) {
@@ -8076,6 +8139,13 @@ void Td::on_request(uint64 id, const td_api::getDefaultBackgroundCustomEmojiStic
   stickers_manager_->get_default_custom_emoji_stickers(StickerListType::Background, false, std::move(promise));
 }
 
+void Td::on_request(uint64 id, const td_api::getDisallowedChatEmojiStatuses &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  stickers_manager_->get_sticker_list_emoji_statuses(StickerListType::DisallowedChannelEmojiStatus, false,
+                                                     std::move(promise));
+}
+
 void Td::on_request(uint64 id, const td_api::getSavedAnimations &request) {
   CHECK_IS_USER();
   CREATE_NO_ARGS_REQUEST(GetSavedAnimationsRequest);
@@ -8361,20 +8431,22 @@ void Td::on_request(uint64 id, const td_api::getLoginUrl &request) {
                                request.allow_write_access_, std::move(promise));
 }
 
-void Td::on_request(uint64 id, const td_api::shareUserWithBot &request) {
+void Td::on_request(uint64 id, const td_api::shareUsersWithBot &request) {
   CHECK_IS_USER();
   CREATE_OK_REQUEST_PROMISE();
-  messages_manager_->share_dialog_with_bot({DialogId(request.chat_id_), MessageId(request.message_id_)},
-                                           request.button_id_, DialogId(UserId(request.shared_user_id_)), true,
-                                           request.only_check_, std::move(promise));
+  auto user_ids = UserId::get_user_ids(request.shared_user_ids_);
+  auto dialog_ids = transform(user_ids, [](UserId user_id) { return DialogId(user_id); });
+  messages_manager_->share_dialogs_with_bot({DialogId(request.chat_id_), MessageId(request.message_id_)},
+                                            request.button_id_, std::move(dialog_ids), true, request.only_check_,
+                                            std::move(promise));
 }
 
 void Td::on_request(uint64 id, const td_api::shareChatWithBot &request) {
   CHECK_IS_USER();
   CREATE_OK_REQUEST_PROMISE();
-  messages_manager_->share_dialog_with_bot({DialogId(request.chat_id_), MessageId(request.message_id_)},
-                                           request.button_id_, DialogId(request.shared_chat_id_), false,
-                                           request.only_check_, std::move(promise));
+  messages_manager_->share_dialogs_with_bot({DialogId(request.chat_id_), MessageId(request.message_id_)},
+                                            request.button_id_, {DialogId(request.shared_chat_id_)}, false,
+                                            request.only_check_, std::move(promise));
 }
 
 void Td::on_request(uint64 id, td_api::getInlineQueryResults &request) {
@@ -8745,7 +8817,7 @@ void Td::on_request(uint64 id, const td_api::getSupportUser &request) {
   contacts_manager_->get_support_user(std::move(promise));
 }
 
-void Td::on_request(uint64 id, const td_api::getBackgrounds &request) {
+void Td::on_request(uint64 id, const td_api::getInstalledBackgrounds &request) {
   CHECK_IS_USER();
   CREATE_REQUEST_PROMISE();
   background_manager_->get_backgrounds(request.for_dark_theme_, std::move(promise));
@@ -8768,20 +8840,26 @@ void Td::on_request(uint64 id, td_api::searchBackground &request) {
   CREATE_REQUEST(SearchBackgroundRequest, std::move(request.name_));
 }
 
-void Td::on_request(uint64 id, td_api::setBackground &request) {
+void Td::on_request(uint64 id, td_api::setDefaultBackground &request) {
   CHECK_IS_USER();
   CREATE_REQUEST_PROMISE();
   background_manager_->set_background(request.background_.get(), request.type_.get(), request.for_dark_theme_,
                                       std::move(promise));
 }
 
-void Td::on_request(uint64 id, const td_api::removeBackground &request) {
+void Td::on_request(uint64 id, const td_api::deleteDefaultBackground &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  background_manager_->delete_background(request.for_dark_theme_, std::move(promise));
+}
+
+void Td::on_request(uint64 id, const td_api::removeInstalledBackground &request) {
   CHECK_IS_USER();
   CREATE_OK_REQUEST_PROMISE();
   background_manager_->remove_background(BackgroundId(request.background_id_), std::move(promise));
 }
 
-void Td::on_request(uint64 id, const td_api::resetBackgrounds &request) {
+void Td::on_request(uint64 id, const td_api::resetInstalledBackgrounds &request) {
   CHECK_IS_USER();
   CREATE_OK_REQUEST_PROMISE();
   background_manager_->reset_backgrounds(std::move(promise));
@@ -8998,13 +9076,6 @@ void Td::on_request(uint64 id, const td_api::getApplicationConfig &request) {
   CHECK_IS_USER();
   CREATE_REQUEST_PROMISE();
   send_closure(G()->config_manager(), &ConfigManager::get_app_config, std::move(promise));
-}
-
-void Td::on_request(uint64 id, td_api::addApplicationChangelog &request) {
-  CHECK_IS_USER();
-  CLEAN_INPUT_STRING(request.previous_application_version_);
-  CREATE_OK_REQUEST_PROMISE();
-  add_app_changelog(this, request.previous_application_version_, std::move(promise));
 }
 
 void Td::on_request(uint64 id, td_api::saveApplicationLogEvent &request) {

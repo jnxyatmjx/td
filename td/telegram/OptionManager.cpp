@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -21,7 +21,6 @@
 #include "td/telegram/net/MtprotoHeader.h"
 #include "td/telegram/net/NetQueryDispatcher.h"
 #include "td/telegram/NotificationManager.h"
-#include "td/telegram/Premium.h"
 #include "td/telegram/ReactionType.h"
 #include "td/telegram/StateManager.h"
 #include "td/telegram/StickersManager.h"
@@ -144,19 +143,35 @@ OptionManager::OptionManager(Td *td)
   if (!have_option("giveaway_duration_max")) {
     set_option_integer("giveaway_duration_max", 7 * 86400);
   }
-  if (!have_option("channel_custom_accent_color_boost_level_min")) {
-    set_option_integer("channel_custom_accent_color_boost_level_min", 5);
-  }
   if (!have_option("premium_gift_boost_count")) {
     set_option_integer("premium_gift_boost_count", 3);
   }
   if (!have_option("chat_boost_level_max")) {
     set_option_integer("chat_boost_level_max", G()->is_test_dc() ? 10 : 100);
   }
+  if (!have_option("chat_available_reaction_count_max")) {
+    set_option_integer("chat_available_reaction_count_max", 100);
+  }
+  if (!have_option("channel_bg_icon_level_min")) {
+    set_option_integer("channel_bg_icon_level_min", G()->is_test_dc() ? 1 : 4);
+  }
+  if (!have_option("channel_custom_wallpaper_level_min")) {
+    set_option_integer("channel_custom_wallpaper_level_min", G()->is_test_dc() ? 4 : 10);
+  }
+  if (!have_option("channel_emoji_status_level_min")) {
+    set_option_integer("channel_emoji_status_level_min", G()->is_test_dc() ? 2 : 8);
+  }
+  if (!have_option("channel_profile_bg_icon_level_min")) {
+    set_option_integer("channel_profile_bg_icon_level_min", G()->is_test_dc() ? 1 : 7);
+  }
+  if (!have_option("channel_wallpaper_level_min")) {
+    set_option_integer("channel_wallpaper_level_min", G()->is_test_dc() ? 3 : 9);
+  }
 
   update_premium_options();
 
   set_option_empty("archive_and_mute_new_chats_from_unknown_users");
+  set_option_empty("channel_custom_accent_color_boost_level_min");
   set_option_empty("chat_filter_count_max");
   set_option_empty("chat_filter_chosen_chat_count_max");
   set_option_empty("forum_member_count_min");
@@ -341,12 +356,14 @@ bool OptionManager::is_internal_option(Slice name) {
     case 'c':
       return name == "call_receive_timeout_ms" || name == "call_ring_timeout_ms" ||
              name == "caption_length_limit_default" || name == "caption_length_limit_premium" ||
-             name == "channels_limit_default" || name == "channels_limit_premium" ||
-             name == "channels_public_limit_default" || name == "channels_public_limit_premium" ||
-             name == "channels_read_media_period" || name == "chat_read_mark_expire_period" ||
-             name == "chat_read_mark_size_threshold" || name == "chatlist_invites_limit_default" ||
-             name == "chatlist_invites_limit_premium" || name == "chatlists_joined_limit_default" ||
-             name == "chatlists_joined_limit_premium";
+             name == "channel_bg_icon_level_min" || name == "channel_custom_wallpaper_level_min" ||
+             name == "channel_emoji_status_level_min" || name == "channel_profile_bg_icon_level_min" ||
+             name == "channel_wallpaper_level_min" || name == "channels_limit_default" ||
+             name == "channels_limit_premium" || name == "channels_public_limit_default" ||
+             name == "channels_public_limit_premium" || name == "channels_read_media_period" ||
+             name == "chat_read_mark_expire_period" || name == "chat_read_mark_size_threshold" ||
+             name == "chatlist_invites_limit_default" || name == "chatlist_invites_limit_premium" ||
+             name == "chatlists_joined_limit_default" || name == "chatlists_joined_limit_premium";
     case 'd':
       return name == "dc_txt_domain_name" || name == "default_reaction" || name == "default_reaction_needs_sync" ||
              name == "dialog_filters_chats_limit_default" || name == "dialog_filters_chats_limit_premium" ||
@@ -640,7 +657,7 @@ td_api::object_ptr<td_api::OptionValue> OptionManager::get_option_synchronously(
       break;
     case 'v':
       if (name == "version") {
-        return td_api::make_object<td_api::optionValueString>("1.8.22");
+        return td_api::make_object<td_api::optionValueString>("1.8.23");
       }
       break;
   }

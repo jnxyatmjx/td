@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -4028,21 +4028,25 @@ class SendBotRequestedPeerQuery final : public Td::ResultHandler {
   explicit SendBotRequestedPeerQuery(Promise<Unit> &&promise) : promise_(std::move(promise)) {
   }
 
-  void send(MessageFullId message_full_id, int32 button_id, DialogId requested_dialog_id) {
+  void send(MessageFullId message_full_id, int32 button_id, vector<DialogId> &&requested_dialog_ids) {
     auto dialog_id = message_full_id.get_dialog_id();
     auto input_peer = td_->messages_manager_->get_input_peer(dialog_id, AccessRights::Write);
     if (input_peer == nullptr) {
       return on_error(Status::Error(400, "Can't access the chat"));
     }
-    auto requested_peer = td_->messages_manager_->get_input_peer(requested_dialog_id, AccessRights::Read);
-    if (requested_peer == nullptr) {
-      return on_error(Status::Error(400, "Can't access the chosen chat"));
+    vector<telegram_api::object_ptr<telegram_api::InputPeer>> requested_peers;
+    for (auto requested_dialog_id : requested_dialog_ids) {
+      auto requested_peer = td_->messages_manager_->get_input_peer(requested_dialog_id, AccessRights::Read);
+      if (requested_peer == nullptr) {
+        return on_error(Status::Error(400, "Can't access the chosen chat"));
+      }
+      requested_peers.push_back(std::move(requested_peer));
     }
 
     send_query(G()->net_query_creator().create(
         telegram_api::messages_sendBotRequestedPeer(std::move(input_peer),
                                                     message_full_id.get_message_id().get_server_message_id().get(),
-                                                    button_id, std::move(requested_peer)),
+                                                    button_id, std::move(requested_peers)),
         {{dialog_id, MessageContentType::Text}}));
   }
 
@@ -4144,6 +4148,7 @@ class DeleteMessagesQuery final : public Td::ResultHandler {
     }
 
     auto affected_messages = result_ptr.move_as_ok();
+    LOG(INFO) << "Receive result for DeleteMessagesQuery: " << to_string(affected_messages);
     if (affected_messages->pts_count_ > 0) {
       td_->updates_manager_->add_pending_pts_update(make_tl_object<dummyUpdate>(), affected_messages->pts_,
                                                     affected_messages->pts_count_, Time::now(), std::move(promise_),
@@ -4195,6 +4200,7 @@ class DeleteChannelMessagesQuery final : public Td::ResultHandler {
     }
 
     auto affected_messages = result_ptr.move_as_ok();
+    LOG(INFO) << "Receive result for DeleteChannelMessagesQuery: " << to_string(affected_messages);
     if (affected_messages->pts_count_ > 0) {
       td_->messages_manager_->add_pending_channel_update(DialogId(channel_id_), make_tl_object<dummyUpdate>(),
                                                          affected_messages->pts_, affected_messages->pts_count_,
@@ -8373,10 +8379,6 @@ void MessagesManager::on_update_dialog_notify_settings(
 
 void MessagesManager::on_update_dialog_available_reactions(
     DialogId dialog_id, telegram_api::object_ptr<telegram_api::ChatReactions> &&available_reactions) {
-  if (td_->auth_manager_->is_bot()) {
-    return;
-  }
-
   Dialog *d = get_dialog_force(dialog_id, "on_update_dialog_available_reactions");
   if (d == nullptr) {
     return;
@@ -8386,7 +8388,6 @@ void MessagesManager::on_update_dialog_available_reactions(
 }
 
 void MessagesManager::set_dialog_available_reactions(Dialog *d, ChatReactions &&available_reactions) {
-  CHECK(!td_->auth_manager_->is_bot());
   CHECK(d != nullptr);
   switch (d->dialog_id.get_type()) {
     case DialogType::Chat:
@@ -8407,12 +8408,13 @@ void MessagesManager::set_dialog_available_reactions(Dialog *d, ChatReactions &&
     return;
   }
 
-  VLOG(notifications) << "Update available reactions in " << d->dialog_id << " to " << available_reactions;
+  LOG(INFO) << "Update available reactions in " << d->dialog_id << " to " << available_reactions;
 
   auto old_active_reactions = get_active_reactions(d->available_reactions);
   auto new_active_reactions = get_active_reactions(available_reactions);
   bool need_update = old_active_reactions != new_active_reactions;
-  bool need_update_message_reactions_visibility = old_active_reactions.empty() != new_active_reactions.empty();
+  bool need_update_message_reactions_visibility =
+      old_active_reactions.empty() != new_active_reactions.empty() && !td_->auth_manager_->is_bot();
 
   d->available_reactions = std::move(available_reactions);
   d->is_available_reactions_inited = true;
@@ -8532,6 +8534,9 @@ void MessagesManager::set_active_reactions(vector<ReactionType> active_reaction_
 }
 
 ChatReactions MessagesManager::get_active_reactions(const ChatReactions &available_reactions) const {
+  if (td_->auth_manager_->is_bot()) {
+    return available_reactions;
+  }
   return available_reactions.get_active_reactions(active_reaction_pos_);
 }
 
@@ -9788,30 +9793,24 @@ void MessagesManager::get_channel_differences_if_needed(MessagesInfo &&messages_
 }
 
 void MessagesManager::get_channel_differences_if_needed(
-    telegram_api::object_ptr<telegram_api::stats_publicForwards> &&public_forwards,
-    Promise<telegram_api::object_ptr<telegram_api::stats_publicForwards>> &&promise, const char *source) {
+    const vector<const telegram_api::object_ptr<telegram_api::Message> *> &messages, Promise<Unit> &&promise,
+    const char *source) {
   if (td_->auth_manager_->is_bot()) {
-    return promise.set_value(std::move(public_forwards));
+    return promise.set_value(Unit());
   }
-  MultiPromiseActorSafe mpas{"GetChannelDifferencesIfNeededForPublicForwardsMultiPromiseActor"};
-  mpas.add_promise(Promise<Unit>());
+  MultiPromiseActorSafe mpas{"GetChannelDifferencesIfNeededGenericMultiPromiseActor"};
+  mpas.add_promise(std::move(promise));
   mpas.set_ignore_errors(true);
   auto lock = mpas.get_promise();
-  for (const auto &forward : public_forwards->forwards_) {
-    CHECK(forward != nullptr);
-    if (forward->get_id() != telegram_api::publicForwardMessage::ID) {
+  for (const auto &message : messages) {
+    if (message == nullptr) {
       continue;
     }
-    const auto &message = static_cast<const telegram_api::publicForwardMessage *>(forward.get())->message_;
-    auto dialog_id = DialogId::get_message_dialog_id(message);
-    if (need_channel_difference_to_add_message(dialog_id, message)) {
-      run_after_channel_difference(dialog_id, MessageId::get_message_id(message, false), mpas.get_promise(), source);
+    auto dialog_id = DialogId::get_message_dialog_id(*message);
+    if (need_channel_difference_to_add_message(dialog_id, *message)) {
+      run_after_channel_difference(dialog_id, MessageId::get_message_id(*message, false), mpas.get_promise(), source);
     }
   }
-  // must be added after forwarded messages are checked
-  mpas.add_promise(
-      PromiseCreator::lambda([public_forwards = std::move(public_forwards), promise = std::move(promise)](
-                                 Unit ignored) mutable { promise.set_value(std::move(public_forwards)); }));
   lock.set_value(Unit());
 }
 
@@ -20899,6 +20898,8 @@ td_api::object_ptr<td_api::chat> MessagesManager::get_chat_object(const Dialog *
       d->dialog_id.get(), get_chat_type_object(d->dialog_id), get_dialog_title(d->dialog_id),
       get_chat_photo_info_object(td_->file_manager_.get(), get_dialog_photo(d->dialog_id)),
       get_dialog_accent_color_id_object(d->dialog_id), get_dialog_background_custom_emoji_id(d->dialog_id).get(),
+      get_dialog_profile_accent_color_id_object(d->dialog_id),
+      get_dialog_profile_background_custom_emoji_id(d->dialog_id).get(),
       get_dialog_default_permissions(d->dialog_id).get_chat_permissions_object(),
       get_message_object(d->dialog_id, get_message(d, d->last_message_id), "get_chat_object"),
       get_chat_positions_object(d), get_default_message_sender_object(d), block_list_id.get_block_list_object(),
@@ -20908,9 +20909,10 @@ td_api::object_ptr<td_api::chat> MessagesManager::get_chat_object(const Dialog *
       d->server_unread_count + d->local_unread_count, d->last_read_inbox_message_id.get(),
       d->last_read_outbox_message_id.get(), d->unread_mention_count, d->unread_reaction_count,
       get_chat_notification_settings_object(&d->notification_settings), std::move(available_reactions),
-      d->message_ttl.get_message_auto_delete_time_object(), get_chat_background_object(d), get_dialog_theme_name(d),
-      get_chat_action_bar_object(d), get_video_chat_object(d), get_chat_join_requests_info_object(d),
-      d->reply_markup_message_id.get(), std::move(draft_message), d->client_data);
+      d->message_ttl.get_message_auto_delete_time_object(), get_dialog_emoji_status_object(d->dialog_id),
+      get_chat_background_object(d), get_dialog_theme_name(d), get_chat_action_bar_object(d), get_video_chat_object(d),
+      get_chat_join_requests_info_object(d), d->reply_markup_message_id.get(), std::move(draft_message),
+      d->client_data);
 }
 
 td_api::object_ptr<td_api::chat> MessagesManager::get_chat_object(DialogId dialog_id) {
@@ -24199,8 +24201,8 @@ td_api::object_ptr<td_api::message> MessagesManager::get_dialog_event_log_messag
                                  get_message_own_max_media_timestamp(m), m->invert_media, m->disable_web_page_preview);
   return td_api::make_object<td_api::message>(
       m->message_id.get(), std::move(sender), get_chat_id_object(dialog_id, "get_dialog_event_log_message_object"),
-      nullptr, nullptr, m->is_outgoing, false, false, false, false, can_be_saved, false, false, false, false, false,
-      false, false, false, true, m->is_channel_post, m->is_topic_message, false, m->date, edit_date,
+      nullptr, nullptr, m->is_outgoing, m->is_pinned, false, false, false, can_be_saved, false, false, false, false,
+      false, false, false, false, true, m->is_channel_post, m->is_topic_message, false, m->date, edit_date,
       std::move(forward_info), std::move(import_info), std::move(interaction_info), Auto(), nullptr, 0, nullptr, 0.0,
       0.0, via_bot_user_id, m->author_signature, 0, get_restriction_reason_description(m->restriction_reasons),
       std::move(content), std::move(reply_markup));
@@ -26519,6 +26521,7 @@ bool MessagesManager::can_edit_message(DialogId dialog_id, const Message *m, boo
     case MessageContentType::Contact:
     case MessageContentType::Dice:
     case MessageContentType::Giveaway:
+    case MessageContentType::GiveawayWinners:
     case MessageContentType::Location:
     case MessageContentType::Sticker:
     case MessageContentType::Venue:
@@ -27942,8 +27945,7 @@ unique_ptr<MessagesManager::MessageForwardInfo> MessagesManager::create_message_
                                                                                              DialogId to_dialog_id,
                                                                                              const Message *m) const {
   auto content_type = m->content->get_type();
-  if (content_type == MessageContentType::Game || content_type == MessageContentType::Audio ||
-      content_type == MessageContentType::Story) {
+  if (content_type == MessageContentType::Game) {
     return nullptr;
   }
 
@@ -27954,6 +27956,8 @@ unique_ptr<MessagesManager::MessageForwardInfo> MessagesManager::create_message_
   if (to_dialog_id == my_dialog_id) {
     saved_from_dialog_id = from_dialog_id;
     saved_from_message_id = m->message_id;
+  } else if (content_type == MessageContentType::Audio || content_type == MessageContentType::Story) {
+    return nullptr;
   }
 
   if (m->forward_info != nullptr) {
@@ -28608,8 +28612,9 @@ void MessagesManager::do_send_screenshot_taken_notification_message(DialogId dia
       ->send(dialog_id, random_id);
 }
 
-void MessagesManager::share_dialog_with_bot(MessageFullId message_full_id, int32 button_id, DialogId shared_dialog_id,
-                                            bool expect_user, bool only_check, Promise<Unit> &&promise) {
+void MessagesManager::share_dialogs_with_bot(MessageFullId message_full_id, int32 button_id,
+                                             vector<DialogId> shared_dialog_ids, bool expect_user, bool only_check,
+                                             Promise<Unit> &&promise) {
   const Message *m = get_message_force(message_full_id, "share_dialog_with_bot");
   if (m == nullptr) {
     return promise.set_error(Status::Error(400, "Message not found"));
@@ -28618,26 +28623,29 @@ void MessagesManager::share_dialog_with_bot(MessageFullId message_full_id, int32
     return promise.set_error(Status::Error(400, "Message has no buttons"));
   }
   CHECK(m->message_id.is_valid() && m->message_id.is_server());
-  if (shared_dialog_id.get_type() != DialogType::User) {
-    if (!have_dialog_force(shared_dialog_id, "share_dialog_with_bot")) {
-      return promise.set_error(Status::Error(400, "Shared chat not found"));
+  TRY_STATUS_PROMISE(promise, m->reply_markup->check_shared_dialog_count(button_id, shared_dialog_ids.size()));
+  for (auto shared_dialog_id : shared_dialog_ids) {
+    if (shared_dialog_id.get_type() != DialogType::User) {
+      if (!have_dialog_force(shared_dialog_id, "share_dialogs_with_bot")) {
+        return promise.set_error(Status::Error(400, "Shared chat not found"));
+      }
+    } else {
+      if (!expect_user) {
+        return promise.set_error(Status::Error(400, "Wrong chat type"));
+      }
+      if (!td_->contacts_manager_->have_user(shared_dialog_id.get_user_id())) {
+        return promise.set_error(Status::Error(400, "Shared user not found"));
+      }
     }
-  } else {
-    if (!expect_user) {
-      return promise.set_error(Status::Error(400, "Wrong chat type"));
-    }
-    if (!td_->contacts_manager_->have_user(shared_dialog_id.get_user_id())) {
-      return promise.set_error(Status::Error(400, "Shared user not found"));
-    }
+    TRY_STATUS_PROMISE(promise, m->reply_markup->check_shared_dialog(td_, button_id, shared_dialog_id));
   }
-  TRY_STATUS_PROMISE(promise, m->reply_markup->check_shared_dialog(td_, button_id, shared_dialog_id));
 
   if (only_check) {
     return promise.set_value(Unit());
   }
 
   td_->create_handler<SendBotRequestedPeerQuery>(std::move(promise))
-      ->send(message_full_id, button_id, shared_dialog_id);
+      ->send(message_full_id, button_id, std::move(shared_dialog_ids));
 }
 
 Result<MessageId> MessagesManager::add_local_message(
@@ -30721,10 +30729,6 @@ void MessagesManager::send_update_chat_action_bar(Dialog *d) {
 }
 
 void MessagesManager::send_update_chat_available_reactions(const Dialog *d) {
-  if (td_->auth_manager_->is_bot()) {
-    return;
-  }
-
   CHECK(d != nullptr);
   LOG_CHECK(d->is_update_new_chat_sent) << "Wrong " << d->dialog_id << " in send_update_chat_available_reactions";
   auto available_reactions = get_dialog_active_reactions(d).get_chat_available_reactions_object();
@@ -32710,23 +32714,16 @@ void MessagesManager::on_dialog_photo_updated(DialogId dialog_id) {
   }
 }
 
-void MessagesManager::on_dialog_accent_color_id_updated(DialogId dialog_id) {
+void MessagesManager::on_dialog_accent_colors_updated(DialogId dialog_id) {
   auto d = get_dialog(dialog_id);  // called from update_user, must not create the dialog
   if (d != nullptr && d->is_update_new_chat_sent) {
     send_closure(
         G()->td(), &Td::send_update,
-        td_api::make_object<td_api::updateChatAccentColor>(get_chat_id_object(dialog_id, "updateChatAccentColor"),
-                                                           get_dialog_accent_color_id_object(dialog_id)));
-  }
-}
-
-void MessagesManager::on_dialog_background_custom_emoji_id_updated(DialogId dialog_id) {
-  auto d = get_dialog(dialog_id);  // called from update_user, must not create the dialog
-  if (d != nullptr && d->is_update_new_chat_sent) {
-    send_closure(G()->td(), &Td::send_update,
-                 td_api::make_object<td_api::updateChatBackgroundCustomEmoji>(
-                     get_chat_id_object(dialog_id, "updateChatBackgroundCustomEmoji"),
-                     get_dialog_background_custom_emoji_id(dialog_id).get()));
+        td_api::make_object<td_api::updateChatAccentColors>(
+            get_chat_id_object(dialog_id, "updateChatAccentColors"), get_dialog_accent_color_id_object(dialog_id),
+            get_dialog_background_custom_emoji_id(dialog_id).get(),
+            get_dialog_profile_accent_color_id_object(dialog_id),
+            get_dialog_profile_background_custom_emoji_id(dialog_id).get()));
   }
 }
 
@@ -32738,6 +32735,16 @@ void MessagesManager::on_dialog_title_updated(DialogId dialog_id) {
       send_closure(G()->td(), &Td::send_update,
                    td_api::make_object<td_api::updateChatTitle>(dialog_id.get(), get_dialog_title(dialog_id)));
     }
+  }
+}
+
+void MessagesManager::on_dialog_emoji_status_updated(DialogId dialog_id) {
+  auto d = get_dialog(dialog_id);  // called from update_user, must not create the dialog
+  if (d != nullptr && d->is_update_new_chat_sent) {
+    send_closure(
+        G()->td(), &Td::send_update,
+        td_api::make_object<td_api::updateChatEmojiStatus>(get_chat_id_object(dialog_id, "updateChatEmojiStatus"),
+                                                           get_dialog_emoji_status_object(dialog_id)));
   }
 }
 
@@ -33200,6 +33207,40 @@ CustomEmojiId MessagesManager::get_dialog_background_custom_emoji_id(DialogId di
   }
 }
 
+int32 MessagesManager::get_dialog_profile_accent_color_id_object(DialogId dialog_id) const {
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+      return td_->contacts_manager_->get_user_profile_accent_color_id_object(dialog_id.get_user_id());
+    case DialogType::Chat:
+      return td_->contacts_manager_->get_chat_profile_accent_color_id_object(dialog_id.get_chat_id());
+    case DialogType::Channel:
+      return td_->contacts_manager_->get_channel_profile_accent_color_id_object(dialog_id.get_channel_id());
+    case DialogType::SecretChat:
+      return td_->contacts_manager_->get_secret_chat_profile_accent_color_id_object(dialog_id.get_secret_chat_id());
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+      return 0;
+  }
+}
+
+CustomEmojiId MessagesManager::get_dialog_profile_background_custom_emoji_id(DialogId dialog_id) const {
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+      return td_->contacts_manager_->get_user_profile_background_custom_emoji_id(dialog_id.get_user_id());
+    case DialogType::Chat:
+      return td_->contacts_manager_->get_chat_profile_background_custom_emoji_id(dialog_id.get_chat_id());
+    case DialogType::Channel:
+      return td_->contacts_manager_->get_channel_profile_background_custom_emoji_id(dialog_id.get_channel_id());
+    case DialogType::SecretChat:
+      return td_->contacts_manager_->get_secret_chat_profile_background_custom_emoji_id(dialog_id.get_secret_chat_id());
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+      return CustomEmojiId();
+  }
+}
+
 string MessagesManager::get_dialog_title(DialogId dialog_id) const {
   switch (dialog_id.get_type()) {
     case DialogType::User:
@@ -33232,6 +33273,23 @@ RestrictedRights MessagesManager::get_dialog_default_permissions(DialogId dialog
       UNREACHABLE();
       return RestrictedRights(false, false, false, false, false, false, false, false, false, false, false, false, false,
                               false, false, false, false, ChannelType::Unknown);
+  }
+}
+
+td_api::object_ptr<td_api::emojiStatus> MessagesManager::get_dialog_emoji_status_object(DialogId dialog_id) const {
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+      return td_->contacts_manager_->get_user_emoji_status_object(dialog_id.get_user_id());
+    case DialogType::Chat:
+      return td_->contacts_manager_->get_chat_emoji_status_object(dialog_id.get_chat_id());
+    case DialogType::Channel:
+      return td_->contacts_manager_->get_channel_emoji_status_object(dialog_id.get_channel_id());
+    case DialogType::SecretChat:
+      return td_->contacts_manager_->get_secret_chat_emoji_status_object(dialog_id.get_secret_chat_id());
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+      return 0;
   }
 }
 
@@ -34054,6 +34112,34 @@ void MessagesManager::set_dialog_accent_color(DialogId dialog_id, AccentColorId 
   promise.set_error(Status::Error(400, "Can't change accent color in the chat"));
 }
 
+void MessagesManager::set_dialog_profile_accent_color(DialogId dialog_id, AccentColorId profile_accent_color_id,
+                                                      CustomEmojiId profile_background_custom_emoji_id,
+                                                      Promise<Unit> &&promise) {
+  if (!have_dialog_force(dialog_id, "set_dialog_profile_accent_color")) {
+    return promise.set_error(Status::Error(400, "Chat not found"));
+  }
+
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+      if (dialog_id == get_my_dialog_id()) {
+        return td_->contacts_manager_->set_profile_accent_color(profile_accent_color_id,
+                                                                profile_background_custom_emoji_id, std::move(promise));
+      }
+      break;
+    case DialogType::Chat:
+      break;
+    case DialogType::Channel:
+      return td_->contacts_manager_->set_channel_profile_accent_color(
+          dialog_id.get_channel_id(), profile_accent_color_id, profile_background_custom_emoji_id, std::move(promise));
+    case DialogType::SecretChat:
+      break;
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+  }
+  promise.set_error(Status::Error(400, "Can't change profile accent color in the chat"));
+}
+
 void MessagesManager::set_dialog_title(DialogId dialog_id, const string &title, Promise<Unit> &&promise) {
   if (!have_dialog_force(dialog_id, "set_dialog_title")) {
     return promise.set_error(Status::Error(400, "Chat not found"));
@@ -34216,6 +34302,32 @@ void MessagesManager::set_dialog_message_ttl(DialogId dialog_id, int32 ttl, Prom
     send_closure(td_->secret_chats_manager_, &SecretChatsManager::send_set_ttl_message, dialog_id.get_secret_chat_id(),
                  ttl, random_id, std::move(promise));
   }
+}
+
+void MessagesManager::set_dialog_emoji_status(DialogId dialog_id, const EmojiStatus &emoji_status,
+                                              Promise<Unit> &&promise) {
+  if (!have_dialog_force(dialog_id, "set_dialog_emoji_status")) {
+    return promise.set_error(Status::Error(400, "Chat not found"));
+  }
+
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+      if (dialog_id == get_my_dialog_id()) {
+        return td_->contacts_manager_->set_emoji_status(emoji_status, std::move(promise));
+      }
+      break;
+    case DialogType::Chat:
+      break;
+    case DialogType::Channel:
+      return td_->contacts_manager_->set_channel_emoji_status(dialog_id.get_channel_id(), emoji_status,
+                                                              std::move(promise));
+    case DialogType::SecretChat:
+      break;
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+  }
+  promise.set_error(Status::Error(400, "Can't change emoji status in the chat"));
 }
 
 void MessagesManager::set_dialog_permissions(DialogId dialog_id,
@@ -35419,7 +35531,8 @@ MessagesManager::Message *MessagesManager::add_message_to_dialog(Dialog *d, uniq
       }
     }
     if (message_content_type == MessageContentType::SetBackground) {
-      set_dialog_background(d, get_message_content_my_background_info(m->content.get(), m->is_outgoing));
+      set_dialog_background(d, get_message_content_my_background_info(
+                                   m->content.get(), m->is_outgoing || dialog_id.get_type() != DialogType::User));
     }
     if (message_content_type == MessageContentType::ChatSetTheme) {
       set_dialog_theme_name(d, get_message_content_theme_name(m->content.get()));
@@ -36899,7 +37012,6 @@ MessagesManager::Dialog *MessagesManager::add_new_dialog(unique_ptr<Dialog> &&di
         d->last_read_outbox_message_id = MessageId::max();
         d->is_last_read_outbox_message_id_inited = true;
       }
-      d->is_background_inited = true;
 
       auto pts = load_channel_pts(dialog_id);
       if (pts > 0) {
@@ -38488,13 +38600,17 @@ bool MessagesManager::need_channel_difference_to_add_message(DialogId dialog_id,
 
   Dialog *d = get_dialog_force(dialog_id, "need_channel_difference_to_add_message");
   if (d == nullptr) {
+    LOG(DEBUG) << "Can't find " << dialog_id;
     return load_channel_pts(dialog_id) > 0 && !is_channel_difference_finished_.count(dialog_id);
   }
   if (d->last_new_message_id == MessageId()) {
+    LOG(DEBUG) << "Can't find last message in " << dialog_id;
     return d->pts > 0 && !d->is_channel_difference_finished;
   }
 
-  return MessageId::get_message_id(message_ptr, false) > d->last_new_message_id;
+  auto message_id = MessageId::get_message_id(message_ptr, false);
+  LOG(DEBUG) << "Check ability to add " << message_id << " to " << dialog_id;
+  return message_id > d->last_new_message_id;
 }
 
 void MessagesManager::run_after_channel_difference(DialogId dialog_id, MessageId expected_max_message_id,
@@ -40750,8 +40866,13 @@ Result<ServerMessageId> MessagesManager::get_giveaway_message_id(MessageFullId m
   if (m == nullptr) {
     return Status::Error(400, "Message not found");
   }
-  if (m->content->get_type() != MessageContentType::Giveaway) {
-    return Status::Error(400, "Message has wrong type");
+  switch (m->content->get_type()) {
+    case MessageContentType::Giveaway:
+    case MessageContentType::GiveawayWinners:
+      // ok
+      break;
+    default:
+      return Status::Error(400, "Message has wrong type");
   }
   if (m->message_id.is_scheduled()) {
     return Status::Error(400, "Wrong scheduled message identifier");

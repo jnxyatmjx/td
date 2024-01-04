@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -108,33 +108,9 @@ RepliedMessageInfo::RepliedMessageInfo(Td *td, tl_object_ptr<telegram_api::messa
       content_ = get_message_content(td, FormattedText(), std::move(reply_header->reply_media_), dialog_id,
                                      origin_date_, true, UserId(), nullptr, nullptr, "messageReplyHeader");
       CHECK(content_ != nullptr);
-      switch (content_->get_type()) {
-        case MessageContentType::Animation:
-        case MessageContentType::Audio:
-        case MessageContentType::Contact:
-        case MessageContentType::Dice:
-        case MessageContentType::Document:
-        // case MessageContentType::ExpiredPhoto:
-        // case MessageContentType::ExpiredVideo:
-        case MessageContentType::Game:
-        case MessageContentType::Giveaway:
-        case MessageContentType::Invoice:
-        // case MessageContentType::LiveLocation:
-        case MessageContentType::Location:
-        case MessageContentType::Photo:
-        case MessageContentType::Poll:
-        case MessageContentType::Sticker:
-        case MessageContentType::Story:
-        case MessageContentType::Text:
-        case MessageContentType::Unsupported:
-        case MessageContentType::Venue:
-        case MessageContentType::Video:
-        case MessageContentType::VideoNote:
-        case MessageContentType::VoiceNote:
-          break;
-        default:
-          LOG(ERROR) << "Receive reply with media of the type " << content_->get_type();
-          content_ = nullptr;
+      if (!is_supported_reply_message_content(content_->get_type())) {
+        LOG(ERROR) << "Receive reply with media of the type " << content_->get_type();
+        content_ = nullptr;
       }
     }
   }

@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -558,6 +558,18 @@ class LinkManager::InternalLinkPremiumFeatures final : public InternalLink {
 
  public:
   explicit InternalLinkPremiumFeatures(string referrer) : referrer_(std::move(referrer)) {
+  }
+};
+
+class LinkManager::InternalLinkPremiumGift final : public InternalLink {
+  string referrer_;
+
+  td_api::object_ptr<td_api::InternalLinkType> get_internal_link_type_object() const final {
+    return td_api::make_object<td_api::internalLinkTypePremiumGift>(referrer_);
+  }
+
+ public:
+  explicit InternalLinkPremiumGift(string referrer) : referrer_(std::move(referrer)) {
   }
 };
 
@@ -1344,6 +1356,9 @@ unique_ptr<LinkManager::InternalLink> LinkManager::parse_tg_link_query(Slice que
   } else if (path.size() == 1 && path[0] == "premium_offer") {
     // premium_offer?ref=<referrer>
     return td::make_unique<InternalLinkPremiumFeatures>(get_arg("ref"));
+  } else if (path.size() == 1 && path[0] == "premium_multigift") {
+    // premium_multigift?ref=<referrer>
+    return td::make_unique<InternalLinkPremiumGift>(get_arg("ref"));
   } else if (!path.empty() && path[0] == "settings") {
     if (path.size() == 2 && path[1] == "auto_delete") {
       // settings/auto_delete
@@ -2180,6 +2195,13 @@ Result<string> LinkManager::get_internal_link_impl(const td_api::InternalLinkTyp
       }
       return PSTRING() << "tg://premium_offer?ref=" << url_encode(link->referrer_);
     }
+    case td_api::internalLinkTypePremiumGift::ID: {
+      auto link = static_cast<const td_api::internalLinkTypePremiumGift *>(type_ptr);
+      if (!is_internal) {
+        return Status::Error("HTTP link is unavailable for the link type");
+      }
+      return PSTRING() << "tg://premium_multigift?ref=" << url_encode(link->referrer_);
+    }
     case td_api::internalLinkTypePremiumGiftCode::ID: {
       auto link = static_cast<const td_api::internalLinkTypePremiumGiftCode *>(type_ptr);
       if (is_internal) {
@@ -2497,6 +2519,9 @@ Result<string> LinkManager::get_background_url(const string &name,
                                                td_api::object_ptr<td_api::BackgroundType> background_type) {
   if (background_type == nullptr) {
     return Status::Error(400, "Type must be non-empty");
+  }
+  if (background_type->get_id() == td_api::backgroundTypeChatTheme::ID) {
+    return Status::Error(400, "Background has no link");
   }
   TRY_RESULT(type, BackgroundType::get_background_type(background_type.get(), 0));
   auto url = PSTRING() << get_t_me_url() << "bg/";
