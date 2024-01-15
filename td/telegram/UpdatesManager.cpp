@@ -20,10 +20,13 @@
 #include "td/telegram/ConfigManager.h"
 #include "td/telegram/ContactsManager.h"
 #include "td/telegram/DialogAction.h"
+#include "td/telegram/DialogActionManager.h"
 #include "td/telegram/DialogFilterManager.h"
 #include "td/telegram/DialogId.h"
 #include "td/telegram/DialogInviteLink.h"
+#include "td/telegram/DialogManager.h"
 #include "td/telegram/DialogParticipant.h"
+#include "td/telegram/DialogParticipantManager.h"
 #include "td/telegram/DownloadManager.h"
 #include "td/telegram/EmojiStatus.h"
 #include "td/telegram/FolderId.h"
@@ -2981,12 +2984,13 @@ void UpdatesManager::process_qts_update(tl_object_ptr<telegram_api::Update> &&up
       }
       case telegram_api::updateBotStopped::ID: {
         auto update = move_tl_object_as<telegram_api::updateBotStopped>(update_ptr);
-        td_->contacts_manager_->on_update_bot_stopped(UserId(update->user_id_), update->date_, update->stopped_);
+        td_->dialog_participant_manager_->on_update_bot_stopped(UserId(update->user_id_), update->date_,
+                                                                update->stopped_);
         break;
       }
       case telegram_api::updateChatParticipant::ID: {
         auto update = move_tl_object_as<telegram_api::updateChatParticipant>(update_ptr);
-        td_->contacts_manager_->on_update_chat_participant(
+        td_->dialog_participant_manager_->on_update_chat_participant(
             ChatId(update->chat_id_), UserId(update->actor_id_), update->date_,
             DialogInviteLink(std::move(update->invite_), true, "updateChatParticipant"),
             std::move(update->prev_participant_), std::move(update->new_participant_));
@@ -2994,7 +2998,7 @@ void UpdatesManager::process_qts_update(tl_object_ptr<telegram_api::Update> &&up
       }
       case telegram_api::updateChannelParticipant::ID: {
         auto update = move_tl_object_as<telegram_api::updateChannelParticipant>(update_ptr);
-        td_->contacts_manager_->on_update_channel_participant(
+        td_->dialog_participant_manager_->on_update_channel_participant(
             ChannelId(update->channel_id_), UserId(update->actor_id_), update->date_,
             DialogInviteLink(std::move(update->invite_), true, "updateChannelParticipant"), update->via_chatlist_,
             std::move(update->prev_participant_), std::move(update->new_participant_));
@@ -3002,7 +3006,7 @@ void UpdatesManager::process_qts_update(tl_object_ptr<telegram_api::Update> &&up
       }
       case telegram_api::updateBotChatInviteRequester::ID: {
         auto update = move_tl_object_as<telegram_api::updateBotChatInviteRequester>(update_ptr);
-        td_->contacts_manager_->on_update_chat_invite_requester(
+        td_->dialog_participant_manager_->on_update_chat_invite_requester(
             DialogId(update->peer_), UserId(update->user_id_), std::move(update->about_), update->date_,
             DialogInviteLink(std::move(update->invite_), true, "updateBotChatInviteRequester"));
         break;
@@ -3028,12 +3032,12 @@ void UpdatesManager::process_qts_update(tl_object_ptr<telegram_api::Update> &&up
           break;
         }
 
-        td_->messages_manager_->force_create_dialog(dialog_id, "on_update_bot_message_reaction", true);
+        td_->dialog_manager_->force_create_dialog(dialog_id, "on_update_bot_message_reaction", true);
         send_closure(G()->td(), &Td::send_update,
                      td_api::make_object<td_api::updateMessageReaction>(
-                         td_->messages_manager_->get_chat_id_object(dialog_id, "updateMessageReaction"),
-                         message_id.get(), get_message_sender_object(td_, actor_dialog_id, "updateMessageReaction"),
-                         date, ReactionType::get_reaction_types_object(old_reaction_types),
+                         td_->dialog_manager_->get_chat_id_object(dialog_id, "updateMessageReaction"), message_id.get(),
+                         get_message_sender_object(td_, actor_dialog_id, "updateMessageReaction"), date,
+                         ReactionType::get_reaction_types_object(old_reaction_types),
                          ReactionType::get_reaction_types_object(new_reaction_types)));
         break;
       }
@@ -3057,10 +3061,10 @@ void UpdatesManager::process_qts_update(tl_object_ptr<telegram_api::Update> &&up
           message_reactions.push_back(td_api::make_object<td_api::messageReaction>(
               reaction_type.get_reaction_type_object(), reaction_count->count_, false, nullptr, Auto()));
         }
-        td_->messages_manager_->force_create_dialog(dialog_id, "on_update_bot_message_reactions", true);
+        td_->dialog_manager_->force_create_dialog(dialog_id, "on_update_bot_message_reactions", true);
         send_closure(G()->td(), &Td::send_update,
                      td_api::make_object<td_api::updateMessageReactions>(
-                         td_->messages_manager_->get_chat_id_object(dialog_id, "updateMessageReactions"),
+                         td_->dialog_manager_->get_chat_id_object(dialog_id, "updateMessageReactions"),
                          message_id.get(), date, std::move(message_reactions)));
         break;
       }
@@ -3462,7 +3466,7 @@ void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateServiceNotifica
 }
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateChat> update, Promise<Unit> &&promise) {
-  td_->messages_manager_->on_dialog_info_full_invalidated(DialogId(ChatId(update->chat_id_)));
+  td_->dialog_manager_->on_dialog_info_full_invalidated(DialogId(ChatId(update->chat_id_)));
   promise.set_value(Unit());
 }
 
@@ -3887,29 +3891,30 @@ bool UpdatesManager::is_channel_pts_update(const telegram_api::Update *update) {
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateUserTyping> update, Promise<Unit> &&promise) {
   DialogId dialog_id(UserId(update->user_id_));
-  td_->messages_manager_->on_dialog_action(dialog_id, MessageId(), dialog_id, DialogAction(std::move(update->action_)),
-                                           get_short_update_date());
+  td_->dialog_action_manager_->on_dialog_action(dialog_id, MessageId(), dialog_id,
+                                                DialogAction(std::move(update->action_)), get_short_update_date());
   promise.set_value(Unit());
 }
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateChatUserTyping> update, Promise<Unit> &&promise) {
-  td_->messages_manager_->on_dialog_action(DialogId(ChatId(update->chat_id_)), MessageId(), DialogId(update->from_id_),
-                                           DialogAction(std::move(update->action_)), get_short_update_date());
+  td_->dialog_action_manager_->on_dialog_action(DialogId(ChatId(update->chat_id_)), MessageId(),
+                                                DialogId(update->from_id_), DialogAction(std::move(update->action_)),
+                                                get_short_update_date());
   promise.set_value(Unit());
 }
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateChannelUserTyping> update, Promise<Unit> &&promise) {
-  td_->messages_manager_->on_dialog_action(DialogId(ChannelId(update->channel_id_)),
-                                           MessageId(ServerMessageId(update->top_msg_id_)), DialogId(update->from_id_),
-                                           DialogAction(std::move(update->action_)), get_short_update_date());
+  td_->dialog_action_manager_->on_dialog_action(
+      DialogId(ChannelId(update->channel_id_)), MessageId(ServerMessageId(update->top_msg_id_)),
+      DialogId(update->from_id_), DialogAction(std::move(update->action_)), get_short_update_date());
   promise.set_value(Unit());
 }
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateEncryptedChatTyping> update, Promise<Unit> &&promise) {
   SecretChatId secret_chat_id(update->chat_id_);
   UserId user_id = td_->contacts_manager_->get_secret_chat_user_id(secret_chat_id);
-  td_->messages_manager_->on_dialog_action(DialogId(secret_chat_id), MessageId(), DialogId(user_id),
-                                           DialogAction::get_typing_action(), get_short_update_date());
+  td_->dialog_action_manager_->on_dialog_action(DialogId(secret_chat_id), MessageId(), DialogId(user_id),
+                                                DialogAction::get_typing_action(), get_short_update_date());
   promise.set_value(Unit());
 }
 
@@ -4242,9 +4247,9 @@ void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateGroupCallConnec
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateGroupCall> update, Promise<Unit> &&promise) {
   DialogId dialog_id(ChatId(update->chat_id_));
-  if (!td_->messages_manager_->have_dialog_force(dialog_id, "updateGroupCall")) {
+  if (!td_->dialog_manager_->have_dialog_force(dialog_id, "updateGroupCall")) {
     dialog_id = DialogId(ChannelId(update->chat_id_));
-    if (!td_->messages_manager_->have_dialog_force(dialog_id, "updateGroupCall")) {
+    if (!td_->dialog_manager_->have_dialog_force(dialog_id, "updateGroupCall")) {
       dialog_id = DialogId();
     }
   }

@@ -21,7 +21,7 @@
 #include "td/telegram/ContactsManager.h"
 #include "td/telegram/CustomEmojiId.h"
 #include "td/telegram/Dependencies.h"
-#include "td/telegram/DialogAction.h"
+#include "td/telegram/DialogManager.h"
 #include "td/telegram/DialogParticipant.h"
 #include "td/telegram/Dimensions.h"
 #include "td/telegram/Document.h"
@@ -54,7 +54,6 @@
 #include "td/telegram/MessageId.h"
 #include "td/telegram/MessageSearchFilter.h"
 #include "td/telegram/MessageSender.h"
-#include "td/telegram/MessagesManager.h"
 #include "td/telegram/misc.h"
 #include "td/telegram/OptionManager.h"
 #include "td/telegram/OrderInfo.h"
@@ -2795,7 +2794,7 @@ static Result<InputMessageContent> create_input_message_content(
       if (!story_id.is_server()) {
         return Status::Error(400, "Story can't be forwarded");
       }
-      if (td->messages_manager_->get_input_peer(dialog_id, AccessRights::Read) == nullptr) {
+      if (td->dialog_manager_->get_input_peer(dialog_id, AccessRights::Read) == nullptr) {
         return Status::Error(400, "Can't access the story");
       }
       content = make_unique<MessageStory>(story_full_id, false);
@@ -2946,7 +2945,7 @@ bool can_have_input_media(const Td *td, const MessageContent *content, bool is_s
     case MessageContentType::Story: {
       auto story_full_id = static_cast<const MessageStory *>(content)->story_full_id;
       auto dialog_id = story_full_id.get_dialog_id();
-      return td->messages_manager_->get_input_peer(dialog_id, AccessRights::Read) != nullptr;
+      return td->dialog_manager_->get_input_peer(dialog_id, AccessRights::Read) != nullptr;
     }
     case MessageContentType::Giveaway:
     case MessageContentType::GiveawayWinners:
@@ -5211,9 +5210,16 @@ static CustomEmojiId get_custom_emoji_id(const FormattedText &text) {
   return text.entities.empty() ? CustomEmojiId() : text.entities[0].custom_emoji_id;
 }
 
+static bool need_register_message_content_for_bots(MessageContentType content_type) {
+  return content_type == MessageContentType::Poll;
+}
+
 void register_message_content(Td *td, const MessageContent *content, MessageFullId message_full_id,
                               const char *source) {
   auto content_type = content->get_type();
+  if (td->auth_manager_->is_bot() && !need_register_message_content_for_bots(content_type)) {
+    return;
+  }
   switch (content_type) {
     case MessageContentType::Text: {
       auto text = static_cast<const MessageText *>(content);
@@ -5263,6 +5269,9 @@ void reregister_message_content(Td *td, const MessageContent *old_content, const
   auto old_content_type = old_content->get_type();
   auto new_content_type = new_content->get_type();
   if (old_content_type == new_content_type) {
+    if (td->auth_manager_->is_bot() && !need_register_message_content_for_bots(new_content_type)) {
+      return;
+    }
     switch (old_content_type) {
       case MessageContentType::Text: {
         auto old_text = static_cast<const MessageText *>(old_content);
@@ -5335,6 +5344,9 @@ void reregister_message_content(Td *td, const MessageContent *old_content, const
 void unregister_message_content(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                 const char *source) {
   auto content_type = content->get_type();
+  if (td->auth_manager_->is_bot() && !need_register_message_content_for_bots(content_type)) {
+    return;
+  }
   switch (content_type) {
     case MessageContentType::Text: {
       auto text = static_cast<const MessageText *>(content);
@@ -5985,7 +5997,7 @@ unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message,
           LOG(ERROR) << "Receive " << actual_story_id << " instead of " << story_id;
         }
       }
-      td->messages_manager_->force_create_dialog(dialog_id, "messageMediaStory", true);
+      td->dialog_manager_->force_create_dialog(dialog_id, "messageMediaStory", true);
       return make_unique<MessageStory>(story_full_id, media->via_mention_);
     }
     case telegram_api::messageMediaGiveaway::ID: {
@@ -5995,7 +6007,7 @@ unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message,
         ChannelId channel_id(channel);
         if (channel_id.is_valid()) {
           channel_ids.push_back(channel_id);
-          td->messages_manager_->force_create_dialog(DialogId(channel_id), "messageMediaGiveaway", true);
+          td->dialog_manager_->force_create_dialog(DialogId(channel_id), "messageMediaGiveaway", true);
         }
       }
       if (channel_ids.empty() || media->quantity_ <= 0 || media->months_ <= 0 || media->until_date_ < 0) {
@@ -6021,7 +6033,7 @@ unique_ptr<MessageContent> get_message_content(Td *td, FormattedText message,
         LOG(ERROR) << "Receive " << to_string(media);
         break;
       }
-      td->messages_manager_->force_create_dialog(DialogId(boosted_channel_id), "messageMediaGiveawayResults", true);
+      td->dialog_manager_->force_create_dialog(DialogId(boosted_channel_id), "messageMediaGiveawayResults", true);
       vector<UserId> winner_user_ids;
       for (auto winner : media->winners_) {
         UserId winner_user_id(winner);
@@ -6705,7 +6717,7 @@ unique_ptr<MessageContent> get_action_message_content(Td *td, tl_object_ptr<tele
           break;
         }
         if (dialog_id.get_type() != DialogType::User) {
-          td->messages_manager_->force_create_dialog(dialog_id, "messageActionGiftCode", true);
+          td->dialog_manager_->force_create_dialog(dialog_id, "messageActionGiftCode", true);
         }
       }
       return td::make_unique<MessageGiftCode>(dialog_id, action->months_, std::move(action->currency_), action->amount_,
@@ -6938,7 +6950,7 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
       } else {
         auto invoice_dialog_id = m->invoice_dialog_id.is_valid() ? m->invoice_dialog_id : dialog_id;
         return make_tl_object<td_api::messagePaymentSuccessful>(
-            td->messages_manager_->get_chat_id_object(invoice_dialog_id, "messagePaymentSuccessful"),
+            td->dialog_manager_->get_chat_id_object(invoice_dialog_id, "messagePaymentSuccessful"),
             m->invoice_message_id.get(), m->currency, m->total_amount, m->is_recurring, m->is_first_recurring,
             m->invoice_payload);
       }
@@ -7073,7 +7085,7 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
       if (td->auth_manager_->is_bot()) {
         chat_id = m->shared_dialog_ids[0].get();
       } else {
-        chat_id = td->messages_manager_->get_chat_id_object(m->shared_dialog_ids[0], "messageChatShared");
+        chat_id = td->dialog_manager_->get_chat_id_object(m->shared_dialog_ids[0], "messageChatShared");
       }
       return make_tl_object<td_api::messageChatShared>(chat_id, m->button_id);
     }
@@ -7090,7 +7102,7 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
     case MessageContentType::Story: {
       const auto *m = static_cast<const MessageStory *>(content);
       return td_api::make_object<td_api::messageStory>(
-          td->messages_manager_->get_chat_id_object(m->story_full_id.get_dialog_id(), "messageStory"),
+          td->dialog_manager_->get_chat_id_object(m->story_full_id.get_dialog_id(), "messageStory"),
           m->story_full_id.get_story_id().get(), m->via_mention);
     }
     case MessageContentType::WriteAccessAllowedByRequest:
@@ -7121,7 +7133,7 @@ tl_object_ptr<td_api::MessageContent> get_message_content_object(const MessageCo
     case MessageContentType::GiveawayWinners: {
       const auto *m = static_cast<const MessageGiveawayWinners *>(content);
       return td_api::make_object<td_api::messagePremiumGiveawayWinners>(
-          td->messages_manager_->get_chat_id_object(DialogId(m->boosted_channel_id), "messagePremiumGiveawayWinners"),
+          td->dialog_manager_->get_chat_id_object(DialogId(m->boosted_channel_id), "messagePremiumGiveawayWinners"),
           m->giveaway_message_id.get(), m->additional_dialog_count, m->winners_selection_date, m->only_new_subscribers,
           m->was_refunded, m->month_count, m->prize_description, m->winner_count,
           td->contacts_manager_->get_user_ids_object(m->winner_user_ids, "messagePremiumGiveawayWinners"),
@@ -7945,15 +7957,6 @@ void move_message_content_sticker_set_to_top(Td *td, const MessageContent *conte
   if (!custom_emoji_ids.empty()) {
     td->stickers_manager_->move_sticker_set_to_top_by_custom_emoji_ids(custom_emoji_ids);
   }
-}
-
-bool is_unsent_animated_emoji_click(Td *td, DialogId dialog_id, const DialogAction &action) {
-  auto emoji = action.get_watching_animations_emoji();
-  if (emoji.empty()) {
-    // not a WatchingAnimations action
-    return false;
-  }
-  return !td->stickers_manager_->is_sent_animated_emoji_click(dialog_id, remove_emoji_modifiers(emoji));
 }
 
 void init_stickers_manager(Td *td) {

@@ -9,10 +9,10 @@
 #include "td/telegram/AccessRights.h"
 #include "td/telegram/AuthManager.h"
 #include "td/telegram/ContactsManager.h"
+#include "td/telegram/DialogManager.h"
 #include "td/telegram/Global.h"
 #include "td/telegram/LinkManager.h"
 #include "td/telegram/MessageId.h"
-#include "td/telegram/MessagesManager.h"
 #include "td/telegram/OptionManager.h"
 #include "td/telegram/ServerMessageId.h"
 #include "td/telegram/Td.h"
@@ -88,13 +88,13 @@ static td_api::object_ptr<td_api::chatBoostSlots> get_chat_boost_slots_object(
       }
     }
     if (dialog_id.is_valid()) {
-      td->messages_manager_->force_create_dialog(dialog_id, "GetMyBoostsQuery", true);
+      td->dialog_manager_->force_create_dialog(dialog_id, "GetMyBoostsQuery", true);
     } else {
       start_date = 0;
       cooldown_until_date = 0;
     }
     slots.push_back(td_api::make_object<td_api::chatBoostSlot>(
-        my_boost->slot_, td->messages_manager_->get_chat_id_object(dialog_id, "GetMyBoostsQuery"), start_date,
+        my_boost->slot_, td->dialog_manager_->get_chat_id_object(dialog_id, "GetMyBoostsQuery"), start_date,
         expiration_date, cooldown_until_date));
   }
   return td_api::make_object<td_api::chatBoostSlots>(std::move(slots));
@@ -140,7 +140,7 @@ class GetBoostsStatusQuery final : public Td::ResultHandler {
 
   void send(DialogId dialog_id) {
     dialog_id_ = dialog_id;
-    auto input_peer = td_->messages_manager_->get_input_peer(dialog_id_, AccessRights::Read);
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id_, AccessRights::Read);
     CHECK(input_peer != nullptr);
     send_query(
         G()->net_query_creator().create(telegram_api::premium_getBoostsStatus(std::move(input_peer)), {{dialog_id}}));
@@ -196,7 +196,7 @@ class GetBoostsStatusQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->messages_manager_->on_get_dialog_error(dialog_id_, status, "GetBoostsStatusQuery");
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "GetBoostsStatusQuery");
     promise_.set_error(std::move(status));
   }
 };
@@ -212,7 +212,7 @@ class ApplyBoostQuery final : public Td::ResultHandler {
 
   void send(DialogId dialog_id, vector<int32> slot_ids) {
     dialog_id_ = dialog_id;
-    auto input_peer = td_->messages_manager_->get_input_peer(dialog_id_, AccessRights::Read);
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id_, AccessRights::Read);
     CHECK(input_peer != nullptr);
     send_query(
         G()->net_query_creator().create(telegram_api::premium_applyBoost(telegram_api::premium_applyBoost::SLOTS_MASK,
@@ -232,7 +232,7 @@ class ApplyBoostQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->messages_manager_->on_get_dialog_error(dialog_id_, status, "ApplyBoostQuery");
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "ApplyBoostQuery");
     promise_.set_error(std::move(status));
   }
 };
@@ -248,7 +248,7 @@ class GetBoostsListQuery final : public Td::ResultHandler {
 
   void send(DialogId dialog_id, bool only_gift_codes, const string &offset, int32 limit) {
     dialog_id_ = dialog_id;
-    auto input_peer = td_->messages_manager_->get_input_peer(dialog_id_, AccessRights::Read);
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id_, AccessRights::Read);
     CHECK(input_peer != nullptr);
     int32 flags = 0;
     if (only_gift_codes) {
@@ -282,7 +282,7 @@ class GetBoostsListQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->messages_manager_->on_get_dialog_error(dialog_id_, status, "GetBoostsListQuery");
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "GetBoostsListQuery");
     promise_.set_error(std::move(status));
   }
 };
@@ -298,7 +298,7 @@ class GetUserBoostsQuery final : public Td::ResultHandler {
 
   void send(DialogId dialog_id, UserId user_id) {
     dialog_id_ = dialog_id;
-    auto input_peer = td_->messages_manager_->get_input_peer(dialog_id_, AccessRights::Read);
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id_, AccessRights::Read);
     CHECK(input_peer != nullptr);
     auto r_input_user = td_->contacts_manager_->get_input_user(user_id);
     CHECK(r_input_user.is_ok());
@@ -330,7 +330,7 @@ class GetUserBoostsQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->messages_manager_->on_get_dialog_error(dialog_id_, status, "GetUserBoostsQuery");
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "GetUserBoostsQuery");
     promise_.set_error(std::move(status));
   }
 };
@@ -375,10 +375,10 @@ void BoostManager::get_boost_slots(Promise<td_api::object_ptr<td_api::chatBoostS
 
 void BoostManager::get_dialog_boost_status(DialogId dialog_id,
                                            Promise<td_api::object_ptr<td_api::chatBoostStatus>> &&promise) {
-  if (!td_->messages_manager_->have_dialog_force(dialog_id, "get_dialog_boost_status")) {
+  if (!td_->dialog_manager_->have_dialog_force(dialog_id, "get_dialog_boost_status")) {
     return promise.set_error(Status::Error(400, "Chat not found"));
   }
-  if (!td_->messages_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
+  if (!td_->dialog_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
     return promise.set_error(Status::Error(400, "Can't access the chat"));
   }
 
@@ -387,10 +387,10 @@ void BoostManager::get_dialog_boost_status(DialogId dialog_id,
 
 void BoostManager::boost_dialog(DialogId dialog_id, vector<int32> slot_ids,
                                 Promise<td_api::object_ptr<td_api::chatBoostSlots>> &&promise) {
-  if (!td_->messages_manager_->have_dialog_force(dialog_id, "get_dialog_boost_status")) {
+  if (!td_->dialog_manager_->have_dialog_force(dialog_id, "get_dialog_boost_status")) {
     return promise.set_error(Status::Error(400, "Chat not found"));
   }
-  if (!td_->messages_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
+  if (!td_->dialog_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
     return promise.set_error(Status::Error(400, "Can't access the chat"));
   }
   if (slot_ids.empty()) {
@@ -401,10 +401,10 @@ void BoostManager::boost_dialog(DialogId dialog_id, vector<int32> slot_ids,
 }
 
 Result<std::pair<string, bool>> BoostManager::get_dialog_boost_link(DialogId dialog_id) {
-  if (!td_->messages_manager_->have_dialog_force(dialog_id, "get_dialog_boost_status")) {
+  if (!td_->dialog_manager_->have_dialog_force(dialog_id, "get_dialog_boost_status")) {
     return Status::Error(400, "Chat not found");
   }
-  if (!td_->messages_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
+  if (!td_->dialog_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
     return Status::Error(400, "Can't access the chat");
   }
   if (dialog_id.get_type() != DialogType::Channel ||
@@ -436,7 +436,7 @@ void BoostManager::get_dialog_boost_link_info(Slice url, Promise<DialogBoostLink
   auto info = r_dialog_boost_link_info.move_as_ok();
   auto query_promise = PromiseCreator::lambda(
       [info, promise = std::move(promise)](Result<DialogId> &&result) mutable { promise.set_value(std::move(info)); });
-  td_->messages_manager_->resolve_dialog(info.username, info.channel_id, std::move(query_promise));
+  td_->dialog_manager_->resolve_dialog(info.username, info.channel_id, std::move(query_promise));
 }
 
 td_api::object_ptr<td_api::chatBoostLinkInfo> BoostManager::get_chat_boost_link_info_object(
@@ -445,17 +445,17 @@ td_api::object_ptr<td_api::chatBoostLinkInfo> BoostManager::get_chat_boost_link_
 
   bool is_public = !info.username.empty();
   DialogId dialog_id =
-      is_public ? td_->messages_manager_->resolve_dialog_username(info.username) : DialogId(info.channel_id);
+      is_public ? td_->dialog_manager_->get_resolved_dialog_by_username(info.username) : DialogId(info.channel_id);
   return td_api::make_object<td_api::chatBoostLinkInfo>(
-      is_public, td_->messages_manager_->get_chat_id_object(dialog_id, "chatBoostLinkInfo"));
+      is_public, td_->dialog_manager_->get_chat_id_object(dialog_id, "chatBoostLinkInfo"));
 }
 
 void BoostManager::get_dialog_boosts(DialogId dialog_id, bool only_gift_codes, const string &offset, int32 limit,
                                      Promise<td_api::object_ptr<td_api::foundChatBoosts>> &&promise) {
-  if (!td_->messages_manager_->have_dialog_force(dialog_id, "get_dialog_boosts")) {
+  if (!td_->dialog_manager_->have_dialog_force(dialog_id, "get_dialog_boosts")) {
     return promise.set_error(Status::Error(400, "Chat not found"));
   }
-  if (!td_->messages_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
+  if (!td_->dialog_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
     return promise.set_error(Status::Error(400, "Can't access the chat"));
   }
   if (limit <= 0) {
@@ -467,10 +467,10 @@ void BoostManager::get_dialog_boosts(DialogId dialog_id, bool only_gift_codes, c
 
 void BoostManager::get_user_dialog_boosts(DialogId dialog_id, UserId user_id,
                                           Promise<td_api::object_ptr<td_api::foundChatBoosts>> &&promise) {
-  if (!td_->messages_manager_->have_dialog_force(dialog_id, "get_user_dialog_boosts")) {
+  if (!td_->dialog_manager_->have_dialog_force(dialog_id, "get_user_dialog_boosts")) {
     return promise.set_error(Status::Error(400, "Chat not found"));
   }
-  if (!td_->messages_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
+  if (!td_->dialog_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
     return promise.set_error(Status::Error(400, "Can't access the chat"));
   }
   if (!user_id.is_valid()) {
@@ -482,7 +482,7 @@ void BoostManager::get_user_dialog_boosts(DialogId dialog_id, UserId user_id,
 
 void BoostManager::on_update_dialog_boost(DialogId dialog_id, telegram_api::object_ptr<telegram_api::boost> &&boost) {
   CHECK(td_->auth_manager_->is_bot());
-  if (!dialog_id.is_valid() || !td_->messages_manager_->have_dialog_info_force(dialog_id, "on_update_dialog_boost")) {
+  if (!dialog_id.is_valid() || !td_->dialog_manager_->have_dialog_info_force(dialog_id, "on_update_dialog_boost")) {
     LOG(ERROR) << "Receive updateBotChatBoost in " << dialog_id;
     return;
   }
@@ -491,11 +491,11 @@ void BoostManager::on_update_dialog_boost(DialogId dialog_id, telegram_api::obje
     LOG(ERROR) << "Receive wrong updateBotChatBoost in " << dialog_id << ": " << to_string(boost);
     return;
   }
-  td_->messages_manager_->force_create_dialog(dialog_id, "on_update_dialog_boost", true);
+  td_->dialog_manager_->force_create_dialog(dialog_id, "on_update_dialog_boost", true);
   send_closure(
       G()->td(), &Td::send_update,
       td_api::make_object<td_api::updateChatBoost>(
-          td_->messages_manager_->get_chat_id_object(dialog_id, "updateChatBoost"), std::move(chat_boost_object)));
+          td_->dialog_manager_->get_chat_id_object(dialog_id, "updateChatBoost"), std::move(chat_boost_object)));
 }
 
 }  // namespace td

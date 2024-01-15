@@ -48,11 +48,16 @@ class BoostManager;
 class BotInfoManager;
 class CallManager;
 class CallbackQueriesManager;
+class CommonDialogManager;
 class ConfigManager;
 class ContactsManager;
 class CountryInfoManager;
 class DeviceTokenManager;
+class DialogActionManager;
 class DialogFilterManager;
+class DialogInviteLinkManager;
+class DialogManager;
+class DialogParticipantManager;
 class DocumentsManager;
 class DownloadManager;
 class FileManager;
@@ -64,6 +69,7 @@ class InlineQueriesManager;
 class HashtagHints;
 class LanguagePackManager;
 class LinkManager;
+class MessageImportManager;
 class MessagesManager;
 class NetStatsManager;
 class NotificationManager;
@@ -168,12 +174,22 @@ class Td final : public Actor {
   ActorOwn<BoostManager> boost_manager_actor_;
   unique_ptr<BotInfoManager> bot_info_manager_;
   ActorOwn<BotInfoManager> bot_info_manager_actor_;
+  unique_ptr<CommonDialogManager> common_dialog_manager_;
+  ActorOwn<CommonDialogManager> common_dialog_manager_actor_;
   unique_ptr<ContactsManager> contacts_manager_;
   ActorOwn<ContactsManager> contacts_manager_actor_;
   unique_ptr<CountryInfoManager> country_info_manager_;
   ActorOwn<CountryInfoManager> country_info_manager_actor_;
+  unique_ptr<DialogActionManager> dialog_action_manager_;
+  ActorOwn<DialogActionManager> dialog_action_manager_actor_;
   unique_ptr<DialogFilterManager> dialog_filter_manager_;
   ActorOwn<DialogFilterManager> dialog_filter_manager_actor_;
+  unique_ptr<DialogInviteLinkManager> dialog_invite_link_manager_;
+  ActorOwn<DialogInviteLinkManager> dialog_invite_link_manager_actor_;
+  unique_ptr<DialogManager> dialog_manager_;
+  ActorOwn<DialogManager> dialog_manager_actor_;
+  unique_ptr<DialogParticipantManager> dialog_participant_manager_;
+  ActorOwn<DialogParticipantManager> dialog_participant_manager_actor_;
   unique_ptr<DownloadManager> download_manager_;
   ActorOwn<DownloadManager> download_manager_actor_;
   unique_ptr<FileManager> file_manager_;
@@ -190,6 +206,8 @@ class Td final : public Actor {
   ActorOwn<InlineQueriesManager> inline_queries_manager_actor_;
   unique_ptr<LinkManager> link_manager_;
   ActorOwn<LinkManager> link_manager_actor_;
+  unique_ptr<MessageImportManager> message_import_manager_;
+  ActorOwn<MessageImportManager> message_import_manager_actor_;
   unique_ptr<MessagesManager> messages_manager_;
   ActorOwn<MessagesManager> messages_manager_actor_;
   unique_ptr<NotificationManager> notification_manager_;
@@ -881,13 +899,13 @@ class Td final : public Actor {
 
   void on_request(uint64 id, const td_api::createSupergroupChat &request);
 
-  void on_request(uint64 id, td_api::createSecretChat &request);
+  void on_request(uint64 id, const td_api::createSecretChat &request);
 
   void on_request(uint64 id, td_api::createNewBasicGroupChat &request);
 
   void on_request(uint64 id, td_api::createNewSupergroupChat &request);
 
-  void on_request(uint64 id, td_api::createNewSecretChat &request);
+  void on_request(uint64 id, const td_api::createNewSecretChat &request);
 
   void on_request(uint64 id, const td_api::createCall &request);
 
@@ -1815,7 +1833,13 @@ class Td final : public Actor {
 
   void init_file_manager();
 
+  void init_non_actor_managers();
+
   void init_managers();
+
+  void init_pure_actor_managers();
+
+  void process_binlog_events(TdDb::OpenedDatabase &&events);
 
   void clear();
 

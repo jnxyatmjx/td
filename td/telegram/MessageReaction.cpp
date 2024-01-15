@@ -9,6 +9,7 @@
 #include "td/telegram/AccessRights.h"
 #include "td/telegram/ContactsManager.h"
 #include "td/telegram/Dependencies.h"
+#include "td/telegram/DialogManager.h"
 #include "td/telegram/Global.h"
 #include "td/telegram/MessageSender.h"
 #include "td/telegram/MessagesManager.h"
@@ -24,6 +25,7 @@
 #include "td/utils/buffer.h"
 #include "td/utils/FlatHashSet.h"
 #include "td/utils/logging.h"
+#include "td/utils/misc.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
 
@@ -48,7 +50,7 @@ class GetMessagesReactionsQuery final : public Td::ResultHandler {
     dialog_id_ = dialog_id;
     message_ids_ = std::move(message_ids);
 
-    auto input_peer = td_->messages_manager_->get_input_peer(dialog_id_, AccessRights::Read);
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id_, AccessRights::Read);
     CHECK(input_peer != nullptr);
 
     send_query(
@@ -88,7 +90,7 @@ class GetMessagesReactionsQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->messages_manager_->on_get_dialog_error(dialog_id_, status, "GetMessagesReactionsQuery");
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "GetMessagesReactionsQuery");
     td_->messages_manager_->try_reload_message_reactions(dialog_id_, true);
   }
 };
@@ -104,7 +106,7 @@ class SendReactionQuery final : public Td::ResultHandler {
   void send(MessageFullId message_full_id, vector<ReactionType> reaction_types, bool is_big, bool add_to_recent) {
     dialog_id_ = message_full_id.get_dialog_id();
 
-    auto input_peer = td_->messages_manager_->get_input_peer(dialog_id_, AccessRights::Read);
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id_, AccessRights::Read);
     if (input_peer == nullptr) {
       return on_error(Status::Error(400, "Can't access the chat"));
     }
@@ -144,7 +146,7 @@ class SendReactionQuery final : public Td::ResultHandler {
     if (status.message() == "MESSAGE_NOT_MODIFIED") {
       return promise_.set_value(Unit());
     }
-    td_->messages_manager_->on_get_dialog_error(dialog_id_, status, "SendReactionQuery");
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "SendReactionQuery");
     promise_.set_error(std::move(status));
   }
 };
@@ -167,7 +169,7 @@ class GetMessageReactionsListQuery final : public Td::ResultHandler {
     reaction_type_ = std::move(reaction_type);
     offset_ = std::move(offset);
 
-    auto input_peer = td_->messages_manager_->get_input_peer(dialog_id_, AccessRights::Read);
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id_, AccessRights::Read);
     if (input_peer == nullptr) {
       return on_error(Status::Error(400, "Can't access the chat"));
     }
@@ -238,7 +240,7 @@ class GetMessageReactionsListQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->messages_manager_->on_get_dialog_error(dialog_id_, status, "GetMessageReactionsListQuery");
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "GetMessageReactionsListQuery");
     promise_.set_error(std::move(status));
   }
 };
@@ -254,10 +256,10 @@ class ReportReactionQuery final : public Td::ResultHandler {
   void send(DialogId dialog_id, MessageId message_id, DialogId chooser_dialog_id) {
     dialog_id_ = dialog_id;
 
-    auto input_peer = td_->messages_manager_->get_input_peer(dialog_id_, AccessRights::Read);
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id_, AccessRights::Read);
     CHECK(input_peer != nullptr);
 
-    auto chooser_input_peer = td_->messages_manager_->get_input_peer(chooser_dialog_id, AccessRights::Know);
+    auto chooser_input_peer = td_->dialog_manager_->get_input_peer(chooser_dialog_id, AccessRights::Know);
     if (chooser_input_peer == nullptr) {
       return promise_.set_error(Status::Error(400, "Reaction sender is not accessible"));
     }
@@ -276,7 +278,7 @@ class ReportReactionQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->messages_manager_->on_get_dialog_error(dialog_id_, status, "ReportReactionQuery");
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "ReportReactionQuery");
     promise_.set_error(std::move(status));
   }
 };
@@ -293,12 +295,14 @@ MessageReaction::MessageReaction(ReactionType reaction_type, int32 choose_count,
   if (my_recent_chooser_dialog_id_.is_valid()) {
     CHECK(td::contains(recent_chooser_dialog_ids_, my_recent_chooser_dialog_id_));
   }
+  fix_choose_count();
 }
 
 void MessageReaction::add_my_recent_chooser_dialog_id(DialogId dialog_id) {
   CHECK(!my_recent_chooser_dialog_id_.is_valid());
   my_recent_chooser_dialog_id_ = dialog_id;
   add_to_top(recent_chooser_dialog_ids_, MAX_RECENT_CHOOSERS + 1, dialog_id);
+  fix_choose_count();
 }
 
 bool MessageReaction::remove_my_recent_chooser_dialog_id() {
@@ -336,6 +340,7 @@ void MessageReaction::update_recent_chooser_dialog_ids(const MessageReaction &ol
   my_recent_chooser_dialog_id_ = old_reaction.my_recent_chooser_dialog_id_;
   recent_chooser_dialog_ids_ = old_reaction.recent_chooser_dialog_ids_;
   recent_chooser_min_channels_ = old_reaction.recent_chooser_min_channels_;
+  fix_choose_count();
 }
 
 void MessageReaction::set_as_chosen(DialogId my_dialog_id, bool have_recent_choosers) {
@@ -355,6 +360,11 @@ void MessageReaction::unset_as_chosen() {
   is_chosen_ = false;
   choose_count_--;
   remove_my_recent_chooser_dialog_id();
+  fix_choose_count();
+}
+
+void MessageReaction::fix_choose_count() {
+  choose_count_ = max(choose_count_, narrow_cast<int32>(recent_chooser_dialog_ids_.size()));
 }
 
 void MessageReaction::set_my_recent_chooser_dialog_id(DialogId my_dialog_id) {
@@ -501,7 +511,7 @@ unique_ptr<MessageReactions> MessageReactions::get_message_reactions(
           LOG(ERROR) << "Receive duplicate " << dialog_id << " as a recent chooser for " << reaction_type;
           continue;
         }
-        if (!td->messages_manager_->have_dialog_info(dialog_id)) {
+        if (!td->dialog_manager_->have_dialog_info(dialog_id)) {
           auto dialog_type = dialog_id.get_type();
           if (dialog_type == DialogType::User) {
             auto user_id = dialog_id.get_user_id();
@@ -851,7 +861,7 @@ StringBuilder &operator<<(StringBuilder &string_builder, const unique_ptr<Messag
 }
 
 void reload_message_reactions(Td *td, DialogId dialog_id, vector<MessageId> &&message_ids) {
-  if (!td->messages_manager_->have_input_peer(dialog_id, AccessRights::Read) ||
+  if (!td->dialog_manager_->have_input_peer(dialog_id, AccessRights::Read) ||
       dialog_id.get_type() == DialogType::SecretChat || message_ids.empty()) {
     create_actor<SleepActor>(
         "RetryReloadMessageReactionsActor", 0.2,
@@ -916,10 +926,10 @@ void get_message_added_reactions(Td *td, MessageFullId message_full_id, Reaction
 void report_message_reactions(Td *td, MessageFullId message_full_id, DialogId chooser_dialog_id,
                               Promise<Unit> &&promise) {
   auto dialog_id = message_full_id.get_dialog_id();
-  if (!td->messages_manager_->have_dialog_force(dialog_id, "send_callback_query")) {
+  if (!td->dialog_manager_->have_dialog_force(dialog_id, "send_callback_query")) {
     return promise.set_error(Status::Error(400, "Chat not found"));
   }
-  if (!td->messages_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
+  if (!td->dialog_manager_->have_input_peer(dialog_id, AccessRights::Read)) {
     return promise.set_error(Status::Error(400, "Can't access the chat"));
   }
   if (dialog_id.get_type() == DialogType::SecretChat) {
@@ -937,7 +947,7 @@ void report_message_reactions(Td *td, MessageFullId message_full_id, DialogId ch
     return promise.set_error(Status::Error(400, "Message reactions can't be reported"));
   }
 
-  if (!td->messages_manager_->have_input_peer(chooser_dialog_id, AccessRights::Know)) {
+  if (!td->dialog_manager_->have_input_peer(chooser_dialog_id, AccessRights::Know)) {
     return promise.set_error(Status::Error(400, "Reaction sender not found"));
   }
 

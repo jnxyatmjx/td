@@ -308,6 +308,7 @@ set(TDLIB_SOURCE
   td/telegram/ChannelParticipantFilter.cpp
   td/telegram/ChatReactions.cpp
   td/telegram/ClientActor.cpp
+  td/telegram/CommonDialogManager.cpp
   td/telegram/ConfigManager.cpp
   td/telegram/ConnectionState.cpp
   td/telegram/Contact.cpp
@@ -319,6 +320,7 @@ set(TDLIB_SOURCE
   td/telegram/DhCache.cpp
   td/telegram/DialogAction.cpp
   td/telegram/DialogActionBar.cpp
+  td/telegram/DialogActionManager.cpp
   td/telegram/DialogAdministrator.cpp
   td/telegram/DialogDb.cpp
   td/telegram/DialogEventLog.cpp
@@ -327,10 +329,13 @@ set(TDLIB_SOURCE
   td/telegram/DialogFilterManager.cpp
   td/telegram/DialogId.cpp
   td/telegram/DialogInviteLink.cpp
+  td/telegram/DialogInviteLinkManager.cpp
   td/telegram/DialogLocation.cpp
+  td/telegram/DialogManager.cpp
   td/telegram/DialogNotificationSettings.cpp
   td/telegram/DialogParticipant.cpp
   td/telegram/DialogParticipantFilter.cpp
+  td/telegram/DialogParticipantManager.cpp
   td/telegram/DialogSource.cpp
   td/telegram/Dimensions.cpp
   td/telegram/Document.cpp
@@ -396,6 +401,7 @@ set(TDLIB_SOURCE
   td/telegram/MessageEntity.cpp
   td/telegram/MessageExtendedMedia.cpp
   td/telegram/MessageId.cpp
+  td/telegram/MessageImportManager.cpp
   td/telegram/MessageInputReplyTo.cpp
   td/telegram/MessageOrigin.cpp
   td/telegram/MessageReaction.cpp
@@ -577,6 +583,7 @@ set(TDLIB_SOURCE
   td/telegram/ChatId.h
   td/telegram/ChatReactions.h
   td/telegram/ClientActor.h
+  td/telegram/CommonDialogManager.h
   td/telegram/ConfigManager.h
   td/telegram/ConnectionState.h
   td/telegram/Contact.h
@@ -590,6 +597,7 @@ set(TDLIB_SOURCE
   td/telegram/DhConfig.h
   td/telegram/DialogAction.h
   td/telegram/DialogActionBar.h
+  td/telegram/DialogActionManager.h
   td/telegram/DialogAdministrator.h
   td/telegram/DialogBoostLinkInfo.h
   td/telegram/DialogDate.h
@@ -600,13 +608,16 @@ set(TDLIB_SOURCE
   td/telegram/DialogFilterId.h
   td/telegram/DialogFilterInviteLink.h
   td/telegram/DialogFilterManager.h
+  td/telegram/DialogInviteLinkManager.h
   td/telegram/DialogId.h
   td/telegram/DialogInviteLink.h
   td/telegram/DialogListId.h
   td/telegram/DialogLocation.h
+  td/telegram/DialogManager.h
   td/telegram/DialogNotificationSettings.h
   td/telegram/DialogParticipant.h
   td/telegram/DialogParticipantFilter.h
+  td/telegram/DialogParticipantManager.h
   td/telegram/DialogSource.h
   td/telegram/Dimensions.h
   td/telegram/Document.h
@@ -688,6 +699,7 @@ set(TDLIB_SOURCE
   td/telegram/MessageExtendedMedia.h
   td/telegram/MessageFullId.h
   td/telegram/MessageId.h
+  td/telegram/MessageImportManager.h
   td/telegram/MessageInputReplyTo.h
   td/telegram/MessageLinkInfo.h
   td/telegram/MessageOrigin.h
