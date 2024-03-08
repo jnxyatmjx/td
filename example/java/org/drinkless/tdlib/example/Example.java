@@ -102,7 +102,6 @@ public final class Example {
                 request.systemLanguageCode = "en";
                 request.deviceModel = "Desktop";
                 request.applicationVersion = "1.0";
-                request.enableStorageOptimizer = true;
 
                 client.send(request, new AuthorizationRequestHandler());
                 break;
@@ -134,7 +133,7 @@ public final class Example {
             case TdApi.AuthorizationStateWaitRegistration.CONSTRUCTOR: {
                 String firstName = promptString("Please enter your first name: ");
                 String lastName = promptString("Please enter your last name: ");
-                client.send(new TdApi.RegisterUser(firstName, lastName), new AuthorizationRequestHandler());
+                client.send(new TdApi.RegisterUser(firstName, lastName, false), new AuthorizationRequestHandler());
                 break;
             }
             case TdApi.AuthorizationStateWaitPassword.CONSTRUCTOR: {

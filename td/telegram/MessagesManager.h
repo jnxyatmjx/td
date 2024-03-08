@@ -36,6 +36,7 @@
 #include "td/telegram/MessageReplyHeader.h"
 #include "td/telegram/MessageReplyInfo.h"
 #include "td/telegram/MessageSearchFilter.h"
+#include "td/telegram/MessageSelfDestructType.h"
 #include "td/telegram/MessagesInfo.h"
 #include "td/telegram/MessageSource.h"
 #include "td/telegram/MessageThreadInfo.h"
@@ -52,10 +53,12 @@
 #include "td/telegram/NotificationSettingsScope.h"
 #include "td/telegram/OrderedMessage.h"
 #include "td/telegram/ReactionType.h"
+#include "td/telegram/ReactionUnavailabilityReason.h"
 #include "td/telegram/RecentDialogList.h"
 #include "td/telegram/RepliedMessageInfo.h"
 #include "td/telegram/ReplyMarkup.h"
 #include "td/telegram/RestrictionReason.h"
+#include "td/telegram/SavedMessagesTopicId.h"
 #include "td/telegram/ScheduledServerMessageId.h"
 #include "td/telegram/secret_api.h"
 #include "td/telegram/SecretChatId.h"
@@ -107,6 +110,7 @@ class DialogFilter;
 class DraftMessage;
 struct InputMessageContent;
 class MessageContent;
+class MessageForwardInfo;
 struct MessageReactions;
 class Td;
 class Usernames;
@@ -163,23 +167,23 @@ class MessagesManager final : public Actor {
                                            vector<tl_object_ptr<telegram_api::Peer>> &&peers);
   void on_failed_public_dialogs_search(const string &query, Status &&error);
 
-  void on_get_message_search_result_calendar(DialogId dialog_id, MessageId from_message_id, MessageSearchFilter filter,
-                                             int64 random_id, int32 total_count,
-                                             vector<tl_object_ptr<telegram_api::Message>> &&messages,
+  void on_get_message_search_result_calendar(DialogId dialog_id, SavedMessagesTopicId saved_messages_topic_id,
+                                             MessageId from_message_id, MessageSearchFilter filter, int64 random_id,
+                                             int32 total_count, vector<tl_object_ptr<telegram_api::Message>> &&messages,
                                              vector<tl_object_ptr<telegram_api::searchResultsCalendarPeriod>> &&periods,
                                              Promise<Unit> &&promise);
-  void on_failed_get_message_search_result_calendar(DialogId dialog_id, int64 random_id);
+  void on_failed_get_message_search_result_calendar(int64 random_id);
 
-  void on_get_dialog_messages_search_result(DialogId dialog_id, const string &query, DialogId sender_dialog_id,
-                                            MessageId from_message_id, int32 offset, int32 limit,
-                                            MessageSearchFilter filter, MessageId top_thread_message_id,
-                                            int64 random_id, int32 total_count,
-                                            vector<tl_object_ptr<telegram_api::Message>> &&messages,
+  void on_get_dialog_messages_search_result(DialogId dialog_id, SavedMessagesTopicId saved_messages_topic_id,
+                                            const string &query, DialogId sender_dialog_id, MessageId from_message_id,
+                                            int32 offset, int32 limit, MessageSearchFilter filter,
+                                            MessageId top_thread_message_id, const ReactionType &tag, int64 random_id,
+                                            int32 total_count, vector<tl_object_ptr<telegram_api::Message>> &&messages,
                                             Promise<Unit> &&promise);
   void on_failed_dialog_messages_search(DialogId dialog_id, int64 random_id);
 
-  void on_get_dialog_message_count(DialogId dialog_id, MessageSearchFilter filter, int32 total_count,
-                                   Promise<int32> &&promise);
+  void on_get_dialog_message_count(DialogId dialog_id, SavedMessagesTopicId saved_messages_topic_id,
+                                   MessageSearchFilter filter, int32 total_count, Promise<int32> &&promise);
 
   void on_get_messages_search_result(const string &query, int32 offset_date, DialogId offset_dialog_id,
                                      MessageId offset_message_id, int32 limit, MessageSearchFilter filter,
@@ -360,6 +364,8 @@ class MessagesManager final : public Actor {
 
   void delete_dialog_messages_by_sender(DialogId dialog_id, DialogId sender_dialog_id, Promise<Unit> &&promise);
 
+  static Status fix_delete_message_min_max_dates(int32 &min_date, int32 &max_date);
+
   void delete_dialog_messages_by_date(DialogId dialog_id, int32 min_date, int32 max_date, bool revoke,
                                       Promise<Unit> &&promise);
 
@@ -407,22 +413,23 @@ class MessagesManager final : public Actor {
                                                  bool for_draft);
 
   Result<td_api::object_ptr<td_api::message>> send_message(
-      DialogId dialog_id, MessageId top_thread_message_id, td_api::object_ptr<td_api::InputMessageReplyTo> &&reply_to,
-      tl_object_ptr<td_api::messageSendOptions> &&options, tl_object_ptr<td_api::ReplyMarkup> &&reply_markup,
+      DialogId dialog_id, const MessageId top_thread_message_id,
+      td_api::object_ptr<td_api::InputMessageReplyTo> &&reply_to, tl_object_ptr<td_api::messageSendOptions> &&options,
+      tl_object_ptr<td_api::ReplyMarkup> &&reply_markup,
       tl_object_ptr<td_api::InputMessageContent> &&input_message_content) TD_WARN_UNUSED_RESULT;
 
   Result<td_api::object_ptr<td_api::messages>> send_message_group(
-      DialogId dialog_id, MessageId top_thread_message_id, td_api::object_ptr<td_api::InputMessageReplyTo> &&reply_to,
-      tl_object_ptr<td_api::messageSendOptions> &&options,
+      DialogId dialog_id, const MessageId top_thread_message_id,
+      td_api::object_ptr<td_api::InputMessageReplyTo> &&reply_to, tl_object_ptr<td_api::messageSendOptions> &&options,
       vector<tl_object_ptr<td_api::InputMessageContent>> &&input_message_contents) TD_WARN_UNUSED_RESULT;
 
   Result<MessageId> send_bot_start_message(UserId bot_user_id, DialogId dialog_id,
                                            const string &parameter) TD_WARN_UNUSED_RESULT;
 
   Result<td_api::object_ptr<td_api::message>> send_inline_query_result_message(
-      DialogId dialog_id, MessageId top_thread_message_id, td_api::object_ptr<td_api::InputMessageReplyTo> &&reply_to,
-      tl_object_ptr<td_api::messageSendOptions> &&options, int64 query_id, const string &result_id,
-      bool hide_via_bot) TD_WARN_UNUSED_RESULT;
+      DialogId dialog_id, const MessageId top_thread_message_id,
+      td_api::object_ptr<td_api::InputMessageReplyTo> &&reply_to, tl_object_ptr<td_api::messageSendOptions> &&options,
+      int64 query_id, const string &result_id, bool hide_via_bot) TD_WARN_UNUSED_RESULT;
 
   Result<td_api::object_ptr<td_api::messages>> forward_messages(
       DialogId to_dialog_id, MessageId top_thread_message_id, DialogId from_dialog_id, vector<MessageId> message_ids,
@@ -576,6 +583,9 @@ class MessagesManager final : public Actor {
                                   DialogId dialog_id, MessageId message_id, DialogId expected_dialog_id,
                                   MessageId expected_message_id, Promise<MessageThreadInfo> promise);
 
+  void get_message_read_date(MessageFullId message_full_id,
+                             Promise<td_api::object_ptr<td_api::MessageReadDate>> &&promise);
+
   void get_message_viewers(MessageFullId message_full_id,
                            Promise<td_api::object_ptr<td_api::messageViewers>> &&promise);
 
@@ -668,6 +678,8 @@ class MessagesManager final : public Actor {
 
   td_api::object_ptr<td_api::chat> get_chat_object(DialogId dialog_id);
 
+  td_api::object_ptr<td_api::draftMessage> get_my_dialog_draft_message_object() const;
+
   tl_object_ptr<td_api::messages> get_dialog_history(DialogId dialog_id, MessageId from_message_id, int32 offset,
                                                      int32 limit, int left_tries, bool only_local,
                                                      Promise<Unit> &&promise);
@@ -677,7 +689,9 @@ class MessagesManager final : public Actor {
                                                                     int32 limit, int64 &random_id,
                                                                     Promise<Unit> &&promise);
 
-  td_api::object_ptr<td_api::messageCalendar> get_dialog_message_calendar(DialogId dialog_id, MessageId from_message_id,
+  td_api::object_ptr<td_api::messageCalendar> get_dialog_message_calendar(DialogId dialog_id,
+                                                                          SavedMessagesTopicId saved_messages_topic_id,
+                                                                          MessageId from_message_id,
                                                                           MessageSearchFilter filter, int64 &random_id,
                                                                           bool use_db, Promise<Unit> &&promise);
 
@@ -694,6 +708,7 @@ class MessagesManager final : public Actor {
                                              const td_api::object_ptr<td_api::MessageSender> &sender,
                                              MessageId from_message_id, int32 offset, int32 limit,
                                              MessageSearchFilter filter, MessageId top_thread_message_id,
+                                             SavedMessagesTopicId saved_messages_topic_id, const ReactionType &tag,
                                              int64 &random_id, bool use_db, Promise<Unit> &&promise);
 
   struct FoundMessages {
@@ -731,23 +746,29 @@ class MessagesManager final : public Actor {
 
   void on_get_dialog_message_by_date_fail(int64 random_id);
 
-  void get_dialog_sparse_message_positions(DialogId dialog_id, MessageSearchFilter filter, MessageId from_message_id,
-                                           int32 limit,
+  void get_dialog_sparse_message_positions(DialogId dialog_id, SavedMessagesTopicId saved_messages_topic_id,
+                                           MessageSearchFilter filter, MessageId from_message_id, int32 limit,
                                            Promise<td_api::object_ptr<td_api::messagePositions>> &&promise);
 
-  void on_get_dialog_sparse_message_positions(
-      DialogId dialog_id, MessageSearchFilter filter,
+  static void on_get_dialog_sparse_message_positions(
+      DialogId dialog_id, SavedMessagesTopicId saved_messages_topic_id, MessageSearchFilter filter,
       telegram_api::object_ptr<telegram_api::messages_searchResultsPositions> positions,
       Promise<td_api::object_ptr<td_api::messagePositions>> &&promise);
 
-  void get_dialog_message_count(DialogId dialog_id, MessageSearchFilter filter, bool return_local,
-                                Promise<int32> &&promise);
+  void get_dialog_message_count(DialogId dialog_id, SavedMessagesTopicId saved_messages_topic_id,
+                                MessageSearchFilter filter, bool return_local, Promise<int32> &&promise);
 
   void get_dialog_message_position(MessageFullId message_full_id, MessageSearchFilter filter,
-                                   MessageId top_thread_message_id, Promise<int32> &&promise);
+                                   MessageId top_thread_message_id, SavedMessagesTopicId saved_messages_topic_id,
+                                   Promise<int32> &&promise);
 
   vector<MessageId> get_dialog_scheduled_messages(DialogId dialog_id, bool force, bool ignore_result,
                                                   Promise<Unit> &&promise);
+
+  using AffectedHistoryQuery = std::function<void(DialogId, Promise<AffectedHistory>)>;
+
+  void run_affected_history_query_until_complete(DialogId dialog_id, AffectedHistoryQuery query,
+                                                 bool get_affected_messages, Promise<Unit> &&promise);
 
   Result<td_api::object_ptr<td_api::availableReactions>> get_message_available_reactions(MessageFullId message_full_id,
                                                                                          int32 row_size);
@@ -947,9 +968,10 @@ class MessagesManager final : public Actor {
     MessageId message_id;
     UserId sender_user_id;
     DialogId sender_dialog_id;
+    SavedMessagesTopicId saved_messages_topic_id;
     int32 date = 0;
     int32 ttl_period = 0;
-    int32 ttl = 0;
+    MessageSelfDestructType ttl;
     bool disable_web_page_preview = false;
     int64 random_id = 0;
     tl_object_ptr<telegram_api::messageFwdHeader> forward_header;
@@ -959,6 +981,7 @@ class MessagesManager final : public Actor {
     int32 forward_count = 0;
     tl_object_ptr<telegram_api::messageReplies> reply_info;
     tl_object_ptr<telegram_api::messageReactions> reactions;
+    int32 sender_boost_count = 0;
     int32 edit_date = 0;
     vector<RestrictionReason> restriction_reasons;
     string author_signature;
@@ -979,56 +1002,17 @@ class MessagesManager final : public Actor {
     tl_object_ptr<telegram_api::ReplyMarkup> reply_markup;
   };
 
-  struct MessageForwardInfo {
-    MessageOrigin origin;
-    int32 date = 0;
-    DialogId from_dialog_id;
-    MessageId from_message_id;
-    string psa_type;
-    bool is_imported = false;
-
-    MessageForwardInfo() = default;
-
-    MessageForwardInfo(MessageOrigin &&origin, int32 date, DialogId from_dialog_id, MessageId from_message_id,
-                       string &&psa_type, bool is_imported)
-        : origin(std::move(origin))
-        , date(date)
-        , from_dialog_id(from_dialog_id)
-        , from_message_id(from_message_id)
-        , psa_type(std::move(psa_type))
-        , is_imported(is_imported) {
-    }
-
-    bool operator==(const MessageForwardInfo &rhs) const {
-      return origin == rhs.origin && date == rhs.date && from_dialog_id == rhs.from_dialog_id &&
-             from_message_id == rhs.from_message_id && psa_type == rhs.psa_type && is_imported == rhs.is_imported;
-    }
-
-    bool operator!=(const MessageForwardInfo &rhs) const {
-      return !(*this == rhs);
-    }
-
-    friend StringBuilder &operator<<(StringBuilder &string_builder, const MessageForwardInfo &forward_info) {
-      string_builder << "MessageForwardInfo[" << (forward_info.is_imported ? "imported " : "") << forward_info.origin;
-      if (!forward_info.psa_type.empty()) {
-        string_builder << ", psa_type " << forward_info.psa_type;
-      }
-      if (forward_info.from_dialog_id.is_valid() || forward_info.from_message_id.is_valid()) {
-        string_builder << ", from " << MessageFullId(forward_info.from_dialog_id, forward_info.from_message_id);
-      }
-      return string_builder << " at " << forward_info.date << ']';
-    }
-  };
-
   // Do not forget to update MessagesManager::update_message and all make_unique<Message> when this class is changed
   struct Message final : public ListNode {
     MessageId message_id;
     UserId sender_user_id;
     DialogId sender_dialog_id;
+    SavedMessagesTopicId saved_messages_topic_id;
     int32 date = 0;
     int32 edit_date = 0;
     int32 send_date = 0;
-    int32 sending_id = 0;
+    int32 sending_id = 0;  // for yet unsent messages
+    int32 sender_boost_count = 0;
 
     int64 random_id = 0;
 
@@ -1041,9 +1025,10 @@ class MessagesManager final : public Actor {
     MessageId linked_top_thread_message_id;
     vector<MessageId> local_thread_message_ids;
 
-    MessageInputReplyTo input_reply_to;  // for send_message
-    int64 reply_to_random_id = 0;        // for send_message
-    string send_emoji;                   // for send_message
+    MessageId initial_top_thread_message_id;  // for send_message
+    MessageInputReplyTo input_reply_to;       // for send_message
+    int64 reply_to_random_id = 0;             // for send_message
+    string send_emoji;                        // for send_message
 
     UserId via_bot_user_id;
 
@@ -1108,9 +1093,9 @@ class MessagesManager final : public Actor {
     string send_error_message;
     double try_resend_at = 0;
 
-    int32 ttl_period = 0;       // counted from message send date
-    int32 ttl = 0;              // counted from message content view date
-    double ttl_expires_at = 0;  // only for TTL
+    int32 ttl_period = 0;         // counted from message send date
+    MessageSelfDestructType ttl;  // counted from message content view date
+    double ttl_expires_at = 0;    // only for TTL
 
     int64 media_album_id = 0;
 
@@ -1290,6 +1275,7 @@ class MessagesManager final : public Actor {
     bool has_expected_active_group_call_id = false;
     bool has_bots = false;
     bool is_view_as_messages_inited = false;
+    bool is_saved_messages_view_as_messages_inited = false;
     bool is_has_bots_inited = false;
     bool is_background_inited = false;
     bool is_theme_name_inited = false;
@@ -1652,13 +1638,15 @@ class MessagesManager final : public Actor {
   MessageInfo parse_telegram_api_message(tl_object_ptr<telegram_api::Message> message_ptr, bool is_scheduled,
                                          const char *source) const;
 
-  std::pair<DialogId, unique_ptr<Message>> create_message(MessageInfo &&message_info, bool is_channel_message);
+  std::pair<DialogId, unique_ptr<Message>> create_message(MessageInfo &&message_info, bool is_channel_message,
+                                                          const char *source);
 
   MessageId find_old_message_id(DialogId dialog_id, MessageId message_id) const;
 
   void delete_update_message_id(DialogId dialog_id, MessageId message_id);
 
-  void get_dialog_message_count_from_server(DialogId dialog_id, MessageSearchFilter filter, Promise<int32> &&promise);
+  void get_dialog_message_count_from_server(DialogId dialog_id, SavedMessagesTopicId saved_messages_topic_id,
+                                            MessageSearchFilter filter, Promise<int32> &&promise);
 
   MessageFullId on_get_message(MessageInfo &&message_info, const bool from_update, const bool is_channel_message,
                                const char *source);
@@ -1675,7 +1663,7 @@ class MessagesManager final : public Actor {
                                                           bool allow_update_stickersets_order) const;
 
   static Status can_use_message_send_options(const MessageSendOptions &options,
-                                             const unique_ptr<MessageContent> &content, int32 ttl);
+                                             const unique_ptr<MessageContent> &content, MessageSelfDestructType ttl);
 
   static Status can_use_message_send_options(const MessageSendOptions &options, const InputMessageContent &content);
 
@@ -1688,12 +1676,14 @@ class MessagesManager final : public Actor {
                                              MessageInputReplyTo &&input_reply_to, const MessageSendOptions &options,
                                              unique_ptr<MessageContent> &&content, bool invert_media,
                                              bool suppress_reply_info, unique_ptr<MessageForwardInfo> forward_info,
-                                             bool is_copy, DialogId send_as_dialog_id) const;
+                                             DialogId real_forward_from_dialog_id, bool is_copy,
+                                             DialogId send_as_dialog_id) const;
 
   Message *get_message_to_send(Dialog *d, MessageId top_thread_message_id, MessageInputReplyTo &&input_reply_to,
                                const MessageSendOptions &options, unique_ptr<MessageContent> &&content,
                                bool invert_media, bool *need_update_dialog_pos, bool suppress_reply_info = false,
-                               unique_ptr<MessageForwardInfo> forward_info = nullptr, bool is_copy = false,
+                               unique_ptr<MessageForwardInfo> forward_info = nullptr,
+                               DialogId real_forward_from_dialog_id = DialogId(), bool is_copy = false,
                                DialogId sender_dialog_id = DialogId());
 
   int64 begin_send_message(DialogId dialog_id, const Message *m);
@@ -1707,6 +1697,8 @@ class MessagesManager final : public Actor {
   static Status can_get_media_timestamp_link(DialogId dialog_id, const Message *m);
 
   bool can_report_message_reactions(DialogId dialog_id, const Message *m) const;
+
+  Status can_get_message_read_date(DialogId dialog_id, const Message *m) const TD_WARN_UNUSED_RESULT;
 
   Status can_get_message_viewers(MessageFullId message_full_id) TD_WARN_UNUSED_RESULT;
 
@@ -1754,7 +1746,7 @@ class MessagesManager final : public Actor {
                            const vector<MessageId> &message_ids, bool drop_author, bool drop_media_captions,
                            uint64 log_event_id);
 
-  void send_forward_message_query(int32 flags, DialogId to_dialog_id, MessageId top_thread_message_id,
+  void send_forward_message_query(int32 flags, DialogId to_dialog_id, const MessageId top_thread_message_id,
                                   DialogId from_dialog_id, tl_object_ptr<telegram_api::InputPeer> as_input_peer,
                                   vector<MessageId> message_ids, vector<int64> random_ids, int32 schedule_date,
                                   Promise<Unit> promise);
@@ -1951,11 +1943,6 @@ class MessagesManager final : public Actor {
   void read_all_dialog_reactions_on_server(DialogId dialog_id, uint64 log_event_id, Promise<Unit> &&promise);
 
   void unpin_all_dialog_messages_on_server(DialogId dialog_id, uint64 log_event_id, Promise<Unit> &&promise);
-
-  using AffectedHistoryQuery = std::function<void(DialogId, Promise<AffectedHistory>)>;
-
-  void run_affected_history_query_until_complete(DialogId dialog_id, AffectedHistoryQuery query,
-                                                 bool get_affected_messages, Promise<Unit> &&promise);
 
   void on_get_affected_history(DialogId dialog_id, AffectedHistoryQuery query, bool get_affected_messages,
                                AffectedHistory affected_history, Promise<Unit> &&promise);
@@ -2318,6 +2305,8 @@ class MessagesManager final : public Actor {
 
   void send_update_chat_draft_message(const Dialog *d);
 
+  void send_update_last_message_if_needed(const Dialog *d, const Message *m, const char *source) const;
+
   void send_update_chat_last_message(Dialog *d, const char *source);
 
   void send_update_chat_last_message_impl(const Dialog *d, const char *source) const;
@@ -2444,7 +2433,7 @@ class MessagesManager final : public Actor {
 
   void set_dialog_is_forum(Dialog *d, bool is_forum);
 
-  void set_dialog_view_as_messages(Dialog *d, bool view_as_messages);
+  void set_dialog_view_as_messages(Dialog *d, bool view_as_messages, const char *source);
 
   void set_dialog_is_marked_as_unread(Dialog *d, bool is_marked_as_unread);
 
@@ -2524,8 +2513,10 @@ class MessagesManager final : public Actor {
 
   void set_dialog_message_ttl(Dialog *d, MessageTtl message_ttl);
 
-  ChatReactions get_message_available_reactions(const Dialog *d, const Message *m,
-                                                bool disallow_custom_for_non_premium);
+  bool can_add_message_tag(DialogId dialog_id, const MessageReactions *reactions) const;
+
+  ChatReactions get_message_available_reactions(const Dialog *d, const Message *m, bool disallow_custom_for_non_premium,
+                                                ReactionUnavailabilityReason *unavailability_reason);
 
   DialogId get_my_reaction_dialog_id(const Dialog *d) const;
 
@@ -2610,6 +2601,8 @@ class MessagesManager final : public Actor {
   void send_search_public_dialogs_query(const string &query, Promise<Unit> &&promise);
 
   vector<DialogId> get_pinned_dialog_ids(DialogListId dialog_list_id) const;
+
+  bool set_folder_pinned_dialogs(FolderId folder_id, vector<DialogId> old_dialog_ids, vector<DialogId> new_dialog_ids);
 
   void reload_pinned_dialogs(DialogListId dialog_list_id, Promise<Unit> &&promise);
 
@@ -2712,15 +2705,6 @@ class MessagesManager final : public Actor {
 
   tl_object_ptr<telegram_api::InputPeer> get_send_message_as_input_peer(const Message *m) const;
 
-  unique_ptr<MessageForwardInfo> get_message_forward_info(
-      tl_object_ptr<telegram_api::messageFwdHeader> &&forward_header);
-
-  td_api::object_ptr<td_api::messageForwardInfo> get_message_forward_info_object(
-      const unique_ptr<MessageForwardInfo> &forward_info) const;
-
-  td_api::object_ptr<td_api::messageImportInfo> get_message_import_info_object(
-      const unique_ptr<MessageForwardInfo> &forward_info) const;
-
   void ttl_read_history(Dialog *d, bool is_outgoing, MessageId from_message_id, MessageId till_message_id,
                         double view_date);
   void ttl_read_history_impl(DialogId dialog_id, bool is_outgoing, MessageId from_message_id, MessageId till_message_id,
@@ -2746,7 +2730,7 @@ class MessagesManager final : public Actor {
 
   void hangup() final;
 
-  void create_folders();
+  void create_folders(int source);
 
   void init();
 
@@ -2822,7 +2806,7 @@ class MessagesManager final : public Actor {
   void change_message_files(DialogId dialog_id, const Message *m, const vector<FileId> &old_file_ids);
 
   Result<unique_ptr<ReplyMarkup>> get_dialog_reply_markup(
-      DialogId dialog_id, tl_object_ptr<td_api::ReplyMarkup> &&reply_markup_ptr) const TD_WARN_UNUSED_RESULT;
+      DialogId dialog_id, tl_object_ptr<td_api::ReplyMarkup> &&reply_markup) const TD_WARN_UNUSED_RESULT;
 
   bool get_dialog_view_as_topics(const Dialog *d) const;
 
@@ -2846,6 +2830,8 @@ class MessagesManager final : public Actor {
 
   bool update_dialog_draft_message(Dialog *d, unique_ptr<DraftMessage> &&draft_message, bool from_update,
                                    bool need_update_dialog_pos);
+
+  void clear_dialog_draft_by_sent_message(Dialog *d, const Message *m, bool need_update_dialog_pos);
 
   void save_dialog_draft_message_on_server(DialogId dialog_id);
 
@@ -3085,6 +3071,8 @@ class MessagesManager final : public Actor {
   bool is_deleted_secret_chat(const Dialog *d) const;
 
   static int32 get_message_schedule_date(const Message *m);
+
+  static int32 get_message_original_date(const Message *m);
 
   static DialogId get_message_original_sender(const Message *m);
 
@@ -3440,6 +3428,7 @@ class MessagesManager final : public Actor {
 
   double start_time_ = 0;
   bool is_inited_ = false;
+  int create_folders_source_ = 0;
 
   Td *td_;
   ActorShared<> parent_;

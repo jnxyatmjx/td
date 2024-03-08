@@ -465,6 +465,7 @@ unique_ptr<MessageReactions> MessageReactions::get_message_reactions(
   auto result = make_unique<MessageReactions>();
   result->can_get_added_reactions_ = reactions->can_see_list_;
   result->is_min_ = reactions->min_;
+  result->are_tags_ = reactions->reactions_as_tags_;
 
   DialogId my_dialog_id;
   for (auto &peer_reaction : reactions->recent_reactions_) {
@@ -612,7 +613,7 @@ void MessageReactions::update_from(const MessageReactions &old_reactions) {
 }
 
 bool MessageReactions::add_my_reaction(const ReactionType &reaction_type, bool is_big, DialogId my_dialog_id,
-                                       bool have_recent_choosers) {
+                                       bool have_recent_choosers, bool is_tag) {
   vector<ReactionType> new_chosen_reaction_order = get_chosen_reaction_types();
 
   auto added_reaction = get_reaction(reaction_type);
@@ -631,6 +632,11 @@ bool MessageReactions::add_my_reaction(const ReactionType &reaction_type, bool i
     new_chosen_reaction_order.emplace_back(reaction_type);
   } else if (!is_big) {
     return false;
+  }
+  if (!is_tag) {
+    CHECK(!are_tags_);
+  } else {
+    are_tags_ = true;
   }
 
   auto max_reaction_count = get_max_reaction_count();
@@ -796,11 +802,12 @@ bool MessageReactions::are_consistent_with_list(
   }
 }
 
-vector<td_api::object_ptr<td_api::messageReaction>> MessageReactions::get_message_reactions_object(
-    Td *td, UserId my_user_id, UserId peer_user_id) const {
-  return transform(reactions_, [td, my_user_id, peer_user_id](const MessageReaction &reaction) {
+td_api::object_ptr<td_api::messageReactions> MessageReactions::get_message_reactions_object(Td *td, UserId my_user_id,
+                                                                                            UserId peer_user_id) const {
+  auto reactions = transform(reactions_, [td, my_user_id, peer_user_id](const MessageReaction &reaction) {
     return reaction.get_message_reaction_object(td, my_user_id, peer_user_id);
   });
+  return td_api::make_object<td_api::messageReactions>(std::move(reactions), are_tags_);
 }
 
 void MessageReactions::add_min_channels(Td *td) const {
@@ -835,7 +842,8 @@ bool MessageReactions::need_update_message_reactions(const MessageReactions *old
   // unread_reactions_ and chosen_reaction_order_ are updated independently; compare all other fields
   return old_reactions->reactions_ != new_reactions->reactions_ || old_reactions->is_min_ != new_reactions->is_min_ ||
          old_reactions->can_get_added_reactions_ != new_reactions->can_get_added_reactions_ ||
-         old_reactions->need_polling_ != new_reactions->need_polling_;
+         old_reactions->need_polling_ != new_reactions->need_polling_ ||
+         old_reactions->are_tags_ != new_reactions->are_tags_;
 }
 
 bool MessageReactions::need_update_unread_reactions(const MessageReactions *old_reactions,
@@ -847,10 +855,13 @@ bool MessageReactions::need_update_unread_reactions(const MessageReactions *old_
 }
 
 StringBuilder &operator<<(StringBuilder &string_builder, const MessageReactions &reactions) {
+  if (reactions.are_tags_) {
+    return string_builder << "MessageTags{" << reactions.reactions_ << '}';
+  }
   return string_builder << (reactions.is_min_ ? "Min" : "") << "MessageReactions{" << reactions.reactions_
                         << " with unread " << reactions.unread_reactions_ << ", reaction order "
                         << reactions.chosen_reaction_order_
-                        << " and can_get_added_reactions = " << reactions.can_get_added_reactions_;
+                        << " and can_get_added_reactions = " << reactions.can_get_added_reactions_ << '}';
 }
 
 StringBuilder &operator<<(StringBuilder &string_builder, const unique_ptr<MessageReactions> &reactions) {
@@ -952,6 +963,13 @@ void report_message_reactions(Td *td, MessageFullId message_full_id, DialogId ch
   }
 
   td->create_handler<ReportReactionQuery>(std::move(promise))->send(dialog_id, message_id, chooser_dialog_id);
+}
+
+vector<ReactionType> get_chosen_tags(const unique_ptr<MessageReactions> &message_reactions) {
+  if (message_reactions == nullptr || !message_reactions->are_tags_) {
+    return {};
+  }
+  return message_reactions->get_chosen_reaction_types();
 }
 
 }  // namespace td

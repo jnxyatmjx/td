@@ -441,7 +441,7 @@ class TdExample {
                                 std::cin >> first_name;
                                 std::cout << "Enter your last name: " << std::flush;
                                 std::cin >> last_name;
-                                send_query(td_api::make_object<td_api::registerUser>(first_name, last_name),
+                                send_query(td_api::make_object<td_api::registerUser>(first_name, last_name, false),
                                            create_authentication_query_handler());
                               },
                               [this](td_api::authorizationStateWaitPassword &) {
@@ -464,7 +464,6 @@ class TdExample {
                                 request->system_language_code_ = "JP";
                                 request->device_model_ = "Andro";
                                 request->application_version_ = "1.0";
-                                request->enable_storage_optimizer_ = true;
                                 send_query(std::move(request), create_authentication_query_handler());
                               }));
   }

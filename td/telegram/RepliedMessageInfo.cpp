@@ -18,6 +18,7 @@
 #include "td/telegram/ScheduledServerMessageId.h"
 #include "td/telegram/ServerMessageId.h"
 #include "td/telegram/Td.h"
+#include "td/telegram/telegram_api.h"
 
 #include "td/utils/algorithm.h"
 #include "td/utils/logging.h"
@@ -159,7 +160,7 @@ RepliedMessageInfo::RepliedMessageInfo(Td *td, const MessageInputReplyTo &input_
         truncate_formatted_text(
             quote_, static_cast<size_t>(td->option_manager_->get_option_integer("message_reply_quote_length_max")));
       }
-      *content_text = {};
+      *content_text = FormattedText();
     }
     auto origin_message_full_id = origin_.get_message_full_id();
     if (origin_message_full_id.get_message_id().is_valid()) {
@@ -220,11 +221,8 @@ bool RepliedMessageInfo::need_reply_changed_warning(
     if (old_info.is_quote_manual_) {
       return true;
     }
-    auto max_size = td->option_manager_->get_option_integer("message_reply_quote_length_max") - 70;
-    if (static_cast<int64>(max(old_info.quote_.text.size(), new_info.quote_.text.size())) < max_size) {
-      // automatic quote can't change, unless truncated differently
-      return true;
-    }
+    // automatic quote can change if the original message was edited
+    return false;
   }
   if (old_info.dialog_id_ != new_info.dialog_id_ && old_info.dialog_id_ != DialogId() &&
       new_info.dialog_id_ != DialogId()) {
@@ -359,7 +357,8 @@ td_api::object_ptr<td_api::messageReplyToMessage> RepliedMessageInfo::get_messag
 MessageInputReplyTo RepliedMessageInfo::get_input_reply_to() const {
   CHECK(!is_external());
   if (message_id_.is_valid()) {
-    return MessageInputReplyTo{message_id_, dialog_id_, FormattedText{quote_}, quote_position_};
+    FormattedText quote = quote_;
+    return MessageInputReplyTo(message_id_, dialog_id_, std::move(quote), quote_position_);
   }
   return {};
 }

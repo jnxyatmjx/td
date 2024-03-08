@@ -156,6 +156,7 @@ struct MessageReactions {
   bool is_min_ = false;
   bool need_polling_ = true;
   bool can_get_added_reactions_ = false;
+  bool are_tags_ = false;
 
   MessageReactions() = default;
 
@@ -169,8 +170,8 @@ struct MessageReactions {
 
   void update_from(const MessageReactions &old_reactions);
 
-  bool add_my_reaction(const ReactionType &reaction_type, bool is_big, DialogId my_dialog_id,
-                       bool have_recent_choosers);
+  bool add_my_reaction(const ReactionType &reaction_type, bool is_big, DialogId my_dialog_id, bool have_recent_choosers,
+                       bool is_tag);
 
   bool remove_my_reaction(const ReactionType &reaction_type, DialogId my_dialog_id);
 
@@ -186,8 +187,8 @@ struct MessageReactions {
                                 FlatHashMap<ReactionType, vector<DialogId>, ReactionTypeHash> reaction_types,
                                 int32 total_count) const;
 
-  vector<td_api::object_ptr<td_api::messageReaction>> get_message_reactions_object(Td *td, UserId my_user_id,
-                                                                                   UserId peer_user_id) const;
+  td_api::object_ptr<td_api::messageReactions> get_message_reactions_object(Td *td, UserId my_user_id,
+                                                                            UserId peer_user_id) const;
 
   void add_min_channels(Td *td) const;
 
@@ -226,5 +227,7 @@ void get_message_added_reactions(Td *td, MessageFullId message_full_id, Reaction
 
 void report_message_reactions(Td *td, MessageFullId message_full_id, DialogId chooser_dialog_id,
                               Promise<Unit> &&promise);
+
+vector<ReactionType> get_chosen_tags(const unique_ptr<MessageReactions> &message_reactions);
 
 }  // namespace td

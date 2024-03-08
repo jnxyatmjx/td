@@ -6,7 +6,7 @@ if (POLICY CMP0065)
   cmake_policy(SET CMP0065 NEW)
 endif()
 
-project(TDLib VERSION 1.8.23 LANGUAGES CXX C)
+project(TDLib VERSION 1.8.25 LANGUAGES CXX C)
 
 if (NOT DEFINED CMAKE_MODULE_PATH)
   set(CMAKE_MODULE_PATH "")
@@ -400,6 +400,7 @@ set(TDLIB_SOURCE
   td/telegram/MessageDb.cpp
   td/telegram/MessageEntity.cpp
   td/telegram/MessageExtendedMedia.cpp
+  td/telegram/MessageForwardInfo.cpp
   td/telegram/MessageId.cpp
   td/telegram/MessageImportManager.cpp
   td/telegram/MessageInputReplyTo.cpp
@@ -408,6 +409,7 @@ set(TDLIB_SOURCE
   td/telegram/MessageReplyHeader.cpp
   td/telegram/MessageReplyInfo.cpp
   td/telegram/MessageSearchFilter.cpp
+  td/telegram/MessageSelfDestructType.cpp
   td/telegram/MessageSender.cpp
   td/telegram/MessagesInfo.cpp
   td/telegram/MessagesManager.cpp
@@ -429,7 +431,8 @@ set(TDLIB_SOURCE
   td/telegram/net/NetQueryStats.cpp
   td/telegram/net/NetStatsManager.cpp
   td/telegram/net/Proxy.cpp
-  td/telegram/net/PublicRsaKeyShared.cpp
+  td/telegram/net/PublicRsaKeySharedCdn.cpp
+  td/telegram/net/PublicRsaKeySharedMain.cpp
   td/telegram/net/PublicRsaKeyWatchdog.cpp
   td/telegram/net/Session.cpp
   td/telegram/net/SessionMultiProxy.cpp
@@ -458,6 +461,7 @@ set(TDLIB_SOURCE
   td/telegram/PrivacyManager.cpp
   td/telegram/QueryCombiner.cpp
   td/telegram/QueryMerger.cpp
+  td/telegram/ReactionListType.cpp
   td/telegram/ReactionManager.cpp
   td/telegram/ReactionType.cpp
   td/telegram/RecentDialogList.cpp
@@ -466,6 +470,8 @@ set(TDLIB_SOURCE
   td/telegram/ReportReason.cpp
   td/telegram/RequestedDialogType.cpp
   td/telegram/RestrictionReason.cpp
+  td/telegram/SavedMessagesManager.cpp
+  td/telegram/SavedMessagesTopicId.cpp
   td/telegram/ScopeNotificationSettings.cpp
   td/telegram/SecretChatActor.cpp
   td/telegram/SecretChatDb.cpp
@@ -697,6 +703,7 @@ set(TDLIB_SOURCE
   td/telegram/MessageDb.h
   td/telegram/MessageEntity.h
   td/telegram/MessageExtendedMedia.h
+  td/telegram/MessageForwardInfo.h
   td/telegram/MessageFullId.h
   td/telegram/MessageId.h
   td/telegram/MessageImportManager.h
@@ -707,6 +714,7 @@ set(TDLIB_SOURCE
   td/telegram/MessageReplyHeader.h
   td/telegram/MessageReplyInfo.h
   td/telegram/MessageSearchFilter.h
+  td/telegram/MessageSelfDestructType.h
   td/telegram/MessageSender.h
   td/telegram/MessagesInfo.h
   td/telegram/MessagesManager.h
@@ -735,7 +743,8 @@ set(TDLIB_SOURCE
   td/telegram/net/NetStatsManager.h
   td/telegram/net/NetType.h
   td/telegram/net/Proxy.h
-  td/telegram/net/PublicRsaKeyShared.h
+  td/telegram/net/PublicRsaKeySharedCdn.h
+  td/telegram/net/PublicRsaKeySharedMain.h
   td/telegram/net/PublicRsaKeyWatchdog.h
   td/telegram/net/Session.h
   td/telegram/net/SessionProxy.h
@@ -777,8 +786,10 @@ set(TDLIB_SOURCE
   td/telegram/PublicDialogType.h
   td/telegram/QueryCombiner.h
   td/telegram/QueryMerger.h
+  td/telegram/ReactionListType.h
   td/telegram/ReactionManager.h
   td/telegram/ReactionType.h
+  td/telegram/ReactionUnavailabilityReason.h
   td/telegram/RecentDialogList.h
   td/telegram/RepliedMessageInfo.h
   td/telegram/ReplyMarkup.h
@@ -786,6 +797,8 @@ set(TDLIB_SOURCE
   td/telegram/RequestActor.h
   td/telegram/RequestedDialogType.h
   td/telegram/RestrictionReason.h
+  td/telegram/SavedMessagesManager.h
+  td/telegram/SavedMessagesTopicId.h
   td/telegram/ScheduledServerMessageId.h
   td/telegram/ScopeNotificationSettings.h
   td/telegram/SecretChatActor.h
@@ -885,6 +898,7 @@ set(TDLIB_SOURCE
   td/telegram/MediaAreaCoordinates.hpp
   td/telegram/MessageEntity.hpp
   td/telegram/MessageExtendedMedia.hpp
+  td/telegram/MessageForwardInfo.hpp
   td/telegram/MessageInputReplyTo.hpp
   td/telegram/MessageOrigin.hpp
   td/telegram/MessageReaction.hpp

@@ -116,7 +116,7 @@ class LambdaPromise : public PromiseInterface<ValueT> {
   }
 
   template <class FromT>
-  explicit LambdaPromise(FromT &&func) : func_(std::forward<FromT>(func)), state_(State::Ready) {
+  LambdaPromise(FromT &&func) : func_(std::forward<FromT>(func)), state_(State::Ready) {
   }
 
  private:

@@ -11,6 +11,7 @@
 #include "td/telegram/ChannelId.h"
 #include "td/telegram/CustomEmojiId.h"
 #include "td/telegram/DialogId.h"
+#include "td/telegram/DialogLocation.h"
 #include "td/telegram/DialogParticipant.h"
 #include "td/telegram/EmojiStatus.h"
 #include "td/telegram/files/FileId.h"
@@ -132,6 +133,8 @@ class DialogManager final : public Actor {
 
   td_api::object_ptr<td_api::emojiStatus> get_dialog_emoji_status_object(DialogId dialog_id) const;
 
+  string get_dialog_about(DialogId dialog_id);
+
   bool get_dialog_has_protected_content(DialogId dialog_id) const;
 
   bool is_dialog_action_unneeded(DialogId dialog_id) const;
@@ -155,6 +158,8 @@ class DialogManager final : public Actor {
   void toggle_dialog_has_protected_content(DialogId dialog_id, bool has_protected_content, Promise<Unit> &&promise);
 
   void set_dialog_description(DialogId dialog_id, const string &description, Promise<Unit> &&promise);
+
+  void set_dialog_location(DialogId dialog_id, const DialogLocation &location, Promise<Unit> &&promise);
 
   bool can_report_dialog(DialogId dialog_id) const;
 

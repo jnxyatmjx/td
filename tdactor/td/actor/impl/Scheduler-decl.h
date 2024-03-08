@@ -107,7 +107,7 @@ class Scheduler {
   void destroy_on_scheduler(int32 sched_id, ArgsT &...values);
 
   template <ActorSendType send_type, class EventT>
-  void send_lambda(ActorRef actor_ref, EventT &&lambda);
+  void send_lambda(ActorRef actor_ref, EventT &&func);
 
   template <ActorSendType send_type, class EventT>
   void send_closure(ActorRef actor_ref, EventT &&closure);
@@ -194,8 +194,7 @@ class Scheduler {
   void add_to_mailbox(ActorInfo *actor_info, Event &&event);
   void clear_mailbox(ActorInfo *actor_info);
 
-  template <class RunFuncT, class EventFuncT>
-  void flush_mailbox(ActorInfo *actor_info, const RunFuncT &run_func, const EventFuncT &event_func);
+  void flush_mailbox(ActorInfo *actor_info);
 
   template <ActorSendType send_type, class RunFuncT, class EventFuncT>
   void send_impl(const ActorId<> &actor_id, const RunFuncT &run_func, const EventFuncT &event_func);

@@ -166,7 +166,7 @@ void NotificationManager::on_flush_pending_updates_timeout_callback(void *notifi
 }
 
 bool NotificationManager::is_disabled() const {
-  return !td_->auth_manager_->is_authorized() || td_->auth_manager_->is_bot() || G()->close_flag();
+  return G()->close_flag() || !td_->auth_manager_->is_authorized() || td_->auth_manager_->is_bot();
 }
 
 StringBuilder &operator<<(StringBuilder &string_builder, const NotificationManager::ActiveNotificationsUpdate &update) {
@@ -3080,9 +3080,9 @@ void NotificationManager::add_push_notification_user(
       false /*ignored*/, false /*ignored*/, false /*ignored*/, false /*ignored*/, false /*ignored*/, false /*ignored*/,
       false /*ignored*/, false /*ignored*/, false /*ignored*/, false /*ignored*/, false /*ignored*/, false /*ignored*/,
       false /*ignored*/, 0, false /*ignored*/, false /*ignored*/, false /*ignored*/, false /*ignored*/,
-      sender_user_id.get(), sender_access_hash, user_name, string(), string(), string(), std::move(sender_photo),
-      nullptr, 0, Auto(), string(), string(), nullptr, vector<telegram_api::object_ptr<telegram_api::username>>(), 0,
-      nullptr, nullptr);
+      false /*ignored*/, sender_user_id.get(), sender_access_hash, user_name, string(), string(), string(),
+      std::move(sender_photo), nullptr, 0, Auto(), string(), string(), nullptr,
+      vector<telegram_api::object_ptr<telegram_api::username>>(), 0, nullptr, nullptr);
   td_->contacts_manager_->on_get_user(std::move(user), "add_push_notification_user");
 }
 

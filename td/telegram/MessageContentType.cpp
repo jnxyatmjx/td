@@ -138,6 +138,12 @@ StringBuilder &operator<<(StringBuilder &string_builder, MessageContentType cont
       return string_builder << "GiveawayResults";
     case MessageContentType::GiveawayWinners:
       return string_builder << "GiveawayWinners";
+    case MessageContentType::ExpiredVideoNote:
+      return string_builder << "ExpiredVideoNote";
+    case MessageContentType::ExpiredVoiceNote:
+      return string_builder << "ExpiredVoiceNote";
+    case MessageContentType::BoostApply:
+      return string_builder << "BoostApply";
     default:
       return string_builder << "Invalid type " << static_cast<int32>(content_type);
   }
@@ -209,6 +215,9 @@ bool is_allowed_media_group_content(MessageContentType content_type) {
     case MessageContentType::GiveawayLaunch:
     case MessageContentType::GiveawayResults:
     case MessageContentType::GiveawayWinners:
+    case MessageContentType::ExpiredVideoNote:
+    case MessageContentType::ExpiredVoiceNote:
+    case MessageContentType::BoostApply:
       return false;
     default:
       UNREACHABLE();
@@ -220,10 +229,7 @@ bool is_homogenous_media_group_content(MessageContentType content_type) {
   return content_type == MessageContentType::Audio || content_type == MessageContentType::Document;
 }
 
-bool is_secret_message_content(int32 ttl, MessageContentType content_type) {
-  if (ttl <= 0 || ttl > 60) {
-    return ttl == 0x7FFFFFFF;
-  }
+bool can_be_secret_message_content(MessageContentType content_type) {
   switch (content_type) {
     case MessageContentType::Animation:
     case MessageContentType::Audio:
@@ -289,6 +295,9 @@ bool is_secret_message_content(int32 ttl, MessageContentType content_type) {
     case MessageContentType::GiveawayLaunch:
     case MessageContentType::GiveawayResults:
     case MessageContentType::GiveawayWinners:
+    case MessageContentType::ExpiredVideoNote:
+    case MessageContentType::ExpiredVoiceNote:
+    case MessageContentType::BoostApply:
       return false;
     default:
       UNREACHABLE();
@@ -305,6 +314,8 @@ bool is_service_message_content(MessageContentType content_type) {
     case MessageContentType::Document:
     case MessageContentType::ExpiredPhoto:
     case MessageContentType::ExpiredVideo:
+    case MessageContentType::ExpiredVideoNote:
+    case MessageContentType::ExpiredVoiceNote:
     case MessageContentType::Game:
     case MessageContentType::Giveaway:
     case MessageContentType::GiveawayWinners:
@@ -362,6 +373,7 @@ bool is_service_message_content(MessageContentType content_type) {
     case MessageContentType::GiftCode:
     case MessageContentType::GiveawayLaunch:
     case MessageContentType::GiveawayResults:
+    case MessageContentType::BoostApply:
       return true;
     default:
       UNREACHABLE();
@@ -370,7 +382,6 @@ bool is_service_message_content(MessageContentType content_type) {
 }
 
 bool is_supported_reply_message_content(MessageContentType content_type) {
-  // update documentation when the list changes
   switch (content_type) {
     case MessageContentType::Animation:
     case MessageContentType::Audio:
@@ -392,13 +403,28 @@ bool is_supported_reply_message_content(MessageContentType content_type) {
     case MessageContentType::Video:
     case MessageContentType::VideoNote:
     case MessageContentType::VoiceNote:
+      // update documentation when the list changes
       return true;
     case MessageContentType::ExpiredPhoto:
     case MessageContentType::ExpiredVideo:
+    case MessageContentType::ExpiredVideoNote:
+    case MessageContentType::ExpiredVoiceNote:
     case MessageContentType::LiveLocation:
       return false;
     default:
       UNREACHABLE();
+      return false;
+  }
+}
+
+bool is_expired_message_content(MessageContentType content_type) {
+  switch (content_type) {
+    case MessageContentType::ExpiredPhoto:
+    case MessageContentType::ExpiredVideo:
+    case MessageContentType::ExpiredVideoNote:
+    case MessageContentType::ExpiredVoiceNote:
+      return true;
+    default:
       return false;
   }
 }
@@ -469,6 +495,9 @@ bool can_have_message_content_caption(MessageContentType content_type) {
     case MessageContentType::GiveawayLaunch:
     case MessageContentType::GiveawayResults:
     case MessageContentType::GiveawayWinners:
+    case MessageContentType::ExpiredVideoNote:
+    case MessageContentType::ExpiredVoiceNote:
+    case MessageContentType::BoostApply:
       return false;
     default:
       UNREACHABLE();

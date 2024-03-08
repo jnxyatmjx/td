@@ -22,6 +22,7 @@
 #include "td/telegram/SecretChatsManager.h"
 #include "td/telegram/StickerPhotoSize.h"
 #include "td/telegram/Td.h"
+#include "td/telegram/telegram_api.h"
 #include "td/telegram/UpdatesManager.h"
 #include "td/telegram/UserId.h"
 #include "td/telegram/Usernames.h"
@@ -1089,6 +1090,23 @@ td_api::object_ptr<td_api::emojiStatus> DialogManager::get_dialog_emoji_status_o
   }
 }
 
+string DialogManager::get_dialog_about(DialogId dialog_id) {
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+      return td_->contacts_manager_->get_user_about(dialog_id.get_user_id());
+    case DialogType::Chat:
+      return td_->contacts_manager_->get_chat_about(dialog_id.get_chat_id());
+    case DialogType::Channel:
+      return td_->contacts_manager_->get_channel_about(dialog_id.get_channel_id());
+    case DialogType::SecretChat:
+      return td_->contacts_manager_->get_secret_chat_about(dialog_id.get_secret_chat_id());
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+      return string();
+  }
+}
+
 bool DialogManager::get_dialog_has_protected_content(DialogId dialog_id) const {
   switch (dialog_id.get_type()) {
     case DialogType::User:
@@ -1583,6 +1601,24 @@ void DialogManager::set_dialog_description(DialogId dialog_id, const string &des
                                                              std::move(promise));
     case DialogType::SecretChat:
       return promise.set_error(Status::Error(400, "Can't change secret chat description"));
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+  }
+}
+
+void DialogManager::set_dialog_location(DialogId dialog_id, const DialogLocation &location, Promise<Unit> &&promise) {
+  if (!have_dialog_force(dialog_id, "set_dialog_location")) {
+    return promise.set_error(Status::Error(400, "Chat not found"));
+  }
+
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+    case DialogType::Chat:
+    case DialogType::SecretChat:
+      return promise.set_error(Status::Error(400, "The chat can't have location"));
+    case DialogType::Channel:
+      return td_->contacts_manager_->set_channel_location(dialog_id.get_channel_id(), location, std::move(promise));
     case DialogType::None:
     default:
       UNREACHABLE();

@@ -1647,9 +1647,11 @@ class StickersManager::UploadStickerFileCallback final : public FileManager::Upl
 StickersManager::StickersManager(Td *td, ActorShared<> parent) : td_(td), parent_(std::move(parent)) {
   upload_sticker_file_callback_ = std::make_shared<UploadStickerFileCallback>();
 
-  on_update_animated_emoji_zoom();
-  on_update_recent_stickers_limit();
-  on_update_favorite_stickers_limit();
+  if (!td_->auth_manager_->is_bot()) {
+    on_update_animated_emoji_zoom();
+    on_update_recent_stickers_limit();
+    on_update_favorite_stickers_limit();
+  }
 
   next_click_animated_emoji_message_time_ = Time::now();
   next_update_animated_emoji_clicked_time_ = Time::now();
@@ -9476,23 +9478,25 @@ string StickersManager::get_language_emojis_database_key(const string &language_
   return PSTRING() << "emoji$" << language_code << '$' << text;
 }
 
-vector<string> StickersManager::search_language_emojis(const string &language_code, const string &text,
-                                                       bool exact_match) {
-  LOG(INFO) << "Search for \"" << text << "\" in language " << language_code;
+vector<std::pair<string, string>> StickersManager::search_language_emojis(const string &language_code,
+                                                                          const string &text) {
+  LOG(INFO) << "Search emoji for \"" << text << "\" in language " << language_code;
   auto key = get_language_emojis_database_key(language_code, text);
-  if (exact_match) {
-    string emojis = G()->td_db()->get_sqlite_sync_pmc()->get(key);
-    return full_split(emojis, '$');
-  } else {
-    vector<string> result;
-    G()->td_db()->get_sqlite_sync_pmc()->get_by_prefix(key, [&result](Slice key, Slice value) {
-      for (auto &emoji : full_split(value, '$')) {
-        result.push_back(emoji.str());
-      }
-      return true;
-    });
-    return result;
-  }
+  vector<std::pair<string, string>> result;
+  G()->td_db()->get_sqlite_sync_pmc()->get_by_prefix(key, [&text, &result](Slice key, Slice value) {
+    for (const auto &emoji : full_split(value, '$')) {
+      result.emplace_back(emoji.str(), PSTRING() << text << key);
+    }
+    return true;
+  });
+  return result;
+}
+
+vector<string> StickersManager::get_keyword_language_emojis(const string &language_code, const string &text) {
+  LOG(INFO) << "Get emoji for \"" << text << "\" in language " << language_code;
+  auto key = get_language_emojis_database_key(language_code, text);
+  string emojis = G()->td_db()->get_sqlite_sync_pmc()->get(key);
+  return full_split(emojis, '$');
 }
 
 string StickersManager::get_emoji_language_codes_database_key(const vector<string> &language_codes) {
@@ -9784,7 +9788,7 @@ void StickersManager::on_get_emoji_keywords_difference(
           }
         }
         if (is_good) {
-          vector<string> emojis = search_language_emojis(language_code, text, true);
+          vector<string> emojis = get_keyword_language_emojis(language_code, text);
           bool is_changed = false;
           for (auto &emoji : keyword->emoticons_) {
             if (!td::contains(emojis, emoji)) {
@@ -9804,7 +9808,7 @@ void StickersManager::on_get_emoji_keywords_difference(
       case telegram_api::emojiKeywordDeleted::ID: {
         auto keyword = telegram_api::move_object_as<telegram_api::emojiKeywordDeleted>(keyword_ptr);
         auto text = utf8_to_lower(keyword->keyword_);
-        vector<string> emojis = search_language_emojis(language_code, text, true);
+        vector<string> emojis = get_keyword_language_emojis(language_code, text);
         bool is_changed = false;
         for (auto &emoji : keyword->emoticons_) {
           if (td::remove(emojis, emoji)) {
@@ -9841,18 +9845,17 @@ void StickersManager::finish_get_emoji_keywords_difference(string language_code,
   emoji_language_code_last_difference_times_[language_code] = static_cast<int32>(Time::now_cached());
 }
 
-vector<string> StickersManager::search_emojis(const string &text, bool exact_match,
-                                              const vector<string> &input_language_codes, bool force,
-                                              Promise<Unit> &&promise) {
+bool StickersManager::prepare_search_emoji_query(const string &text, const vector<string> &input_language_codes,
+                                                 bool force, Promise<Unit> &promise, SearchEmojiQuery &query) {
   if (text.empty() || !G()->use_sqlite_pmc()) {
     promise.set_value(Unit());
-    return {};
+    return false;
   }
 
   auto language_codes = get_emoji_language_codes(input_language_codes, text, promise);
   if (language_codes.empty()) {
     // promise was consumed
-    return {};
+    return false;
   }
 
   vector<string> languages_to_load;
@@ -9876,18 +9879,46 @@ vector<string> StickersManager::search_emojis(const string &text, bool exact_mat
         load_emoji_keywords(language_code, mpas.get_promise());
       }
       lock.set_value(Unit());
-      return {};
+      return false;
     } else {
       LOG(ERROR) << "Have no " << languages_to_load << " emoji keywords";
     }
   }
 
-  auto text_lowered = utf8_to_lower(text);
-  vector<string> result;
-  for (auto &language_code : language_codes) {
-    combine(result, search_language_emojis(language_code, text_lowered, exact_match));
+  query.text_ = utf8_to_lower(text);
+  query.language_codes_ = std::move(language_codes);
+  return true;
+}
+
+vector<std::pair<string, string>> StickersManager::search_emojis(const string &text,
+                                                                 const vector<string> &input_language_codes, bool force,
+                                                                 Promise<Unit> &&promise) {
+  SearchEmojiQuery query;
+  if (!prepare_search_emoji_query(text, input_language_codes, force, promise, query)) {
+    return {};
   }
 
+  vector<std::pair<string, string>> result;
+  for (auto &language_code : query.language_codes_) {
+    combine(result, search_language_emojis(language_code, query.text_));
+  }
+  td::unique(result);
+
+  promise.set_value(Unit());
+  return result;
+}
+
+vector<string> StickersManager::get_keyword_emojis(const string &text, const vector<string> &input_language_codes,
+                                                   bool force, Promise<Unit> &&promise) {
+  SearchEmojiQuery query;
+  if (!prepare_search_emoji_query(text, input_language_codes, force, promise, query)) {
+    return {};
+  }
+
+  vector<string> result;
+  for (auto &language_code : query.language_codes_) {
+    combine(result, get_keyword_language_emojis(language_code, query.text_));
+  }
   td::unique(result);
 
   promise.set_value(Unit());

@@ -15,6 +15,7 @@
 #include "td/telegram/Global.h"
 #include "td/telegram/MessageContent.h"
 #include "td/telegram/Td.h"
+#include "td/telegram/telegram_api.h"
 
 #include "td/utils/buffer.h"
 #include "td/utils/logging.h"
@@ -304,7 +305,7 @@ Status MessageImportManager::can_import_messages(DialogId dialog_id) {
       if (td_->dialog_manager_->is_broadcast_channel(dialog_id)) {
         return Status::Error(400, "Can't import messages to channels");
       }
-      if (!td_->contacts_manager_->get_channel_status(dialog_id.get_channel_id()).can_change_info_and_settings()) {
+      if (!td_->contacts_manager_->get_channel_permissions(dialog_id.get_channel_id()).can_change_info_and_settings()) {
         return Status::Error(400, "Not enough rights to import messages");
       }
       break;
