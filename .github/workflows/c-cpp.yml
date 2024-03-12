@@ -53,7 +53,7 @@ jobs:
     - name: tar files
       run: |
         cd $GITHUB_WORKSPACE
-        tar -cjvf ./tdlib_${{ matrix.os }}.tar.bz2 ./tdlib_${{ matrix.os }}/libtd*
+        tar -cjvf ./tdlib_${{ matrix.os }}.tar.bz2 ./tdlib_${{ matrix.os }}/lib/libtd*
         
     - name: generate release tag
       id: tag
