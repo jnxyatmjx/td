@@ -49,19 +49,11 @@ jobs:
         cd bld_
         cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX:PATH=../tdlib_${{ matrix.os }} ../
         cmake --build ./ --target install -j$(nproc)
-    
-    - name: build telegram client
-      run: |
-        cd $GITHUB_WORKSPACE/example/cpp
-        mkdir bld_
-        cd bld_
-        cmake -DCMAKE_BUILD_TYPE=Release -DTd_DIR=$GITHUB_WORKSPACE/tdlib_${{ matrix.os }}/lib/cmake/Td ../
-        cmake --build ./
         
     - name: tar files
       run: |
         cd $GITHUB_WORKSPACE
-        tar -cjvf ./tdlib_${{ matrix.os }}.tar.bz2 ./tdlib_${{ matrix.os }} $GITHUB_WORKSPACE/example/cpp/bld_/td_example
+        tar -cjvf ./tdlib_${{ matrix.os }}.tar.bz2 ./tdlib_${{ matrix.os }}/libtd*
         
     - name: generate release tag
       id: tag
