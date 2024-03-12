@@ -37,6 +37,7 @@ class AuthManager;
 class AutosaveManager;
 class BackgroundManager;
 class BoostManager;
+class BusinessManager;
 class CallManager;
 class ConfigManager;
 class ConnectionCreator;
@@ -61,6 +62,8 @@ class NotificationManager;
 class NotificationSettingsManager;
 class OptionManager;
 class PasswordManager;
+class PeopleNearbyManager;
+class QuickReplyManager;
 class ReactionManager;
 class SavedMessagesManager;
 class SecretChatsManager;
@@ -73,6 +76,7 @@ class Td;
 class TdDb;
 class TempAuthKeyWatchdog;
 class ThemeManager;
+class TimeZoneManager;
 class TopDialogManager;
 class TranscriptionManager;
 class UpdatesManager;
@@ -229,6 +233,13 @@ class Global final : public ActorContext {
     boost_manager_ = boost_manager;
   }
 
+  ActorId<BusinessManager> business_manager() const {
+    return business_manager_;
+  }
+  void set_business_manager(ActorId<BusinessManager> business_manager) {
+    business_manager_ = business_manager;
+  }
+
   ActorId<CallManager> call_manager() const {
     return call_manager_;
   }
@@ -381,6 +392,20 @@ class Global final : public ActorContext {
     password_manager_ = password_manager;
   }
 
+  ActorId<PeopleNearbyManager> people_nearby_manager() const {
+    return people_nearby_manager_;
+  }
+  void set_people_nearby_manager(ActorId<PeopleNearbyManager> people_nearby_manager) {
+    people_nearby_manager_ = people_nearby_manager;
+  }
+
+  ActorId<QuickReplyManager> quick_reply_manager() const {
+    return quick_reply_manager_;
+  }
+  void set_quick_reply_manager(ActorId<QuickReplyManager> quick_reply_manager) {
+    quick_reply_manager_ = quick_reply_manager;
+  }
+
   ActorId<ReactionManager> reaction_manager() const {
     return reaction_manager_;
   }
@@ -435,6 +460,13 @@ class Global final : public ActorContext {
   }
   void set_theme_manager(ActorId<ThemeManager> theme_manager) {
     theme_manager_ = theme_manager;
+  }
+
+  ActorId<TimeZoneManager> time_zone_manager() const {
+    return time_zone_manager_;
+  }
+  void set_time_zone_manager(ActorId<TimeZoneManager> time_zone_manager) {
+    time_zone_manager_ = time_zone_manager;
   }
 
   ActorId<TopDialogManager> top_dialog_manager() const {
@@ -591,6 +623,7 @@ class Global final : public ActorContext {
   ActorId<AutosaveManager> autosave_manager_;
   ActorId<BackgroundManager> background_manager_;
   ActorId<BoostManager> boost_manager_;
+  ActorId<BusinessManager> business_manager_;
   ActorId<CallManager> call_manager_;
   ActorId<ConfigManager> config_manager_;
   ActorId<ContactsManager> contacts_manager_;
@@ -612,6 +645,8 @@ class Global final : public ActorContext {
   ActorId<NotificationManager> notification_manager_;
   ActorId<NotificationSettingsManager> notification_settings_manager_;
   ActorId<PasswordManager> password_manager_;
+  ActorId<PeopleNearbyManager> people_nearby_manager_;
+  ActorId<QuickReplyManager> quick_reply_manager_;
   ActorId<ReactionManager> reaction_manager_;
   ActorId<SavedMessagesManager> saved_messages_manager_;
   ActorId<SecretChatsManager> secret_chats_manager_;
@@ -620,6 +655,7 @@ class Global final : public ActorContext {
   ActorId<StorageManager> storage_manager_;
   ActorId<StoryManager> story_manager_;
   ActorId<ThemeManager> theme_manager_;
+  ActorId<TimeZoneManager> time_zone_manager_;
   ActorId<TopDialogManager> top_dialog_manager_;
   ActorId<TranscriptionManager> transcription_manager_;
   ActorId<UpdatesManager> updates_manager_;

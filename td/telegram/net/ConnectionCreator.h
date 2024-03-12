@@ -119,7 +119,7 @@ class ConnectionCreator final : public NetQueryCallback {
 
   struct ClientInfo {
     class Backoff {
-#if TD_ANDROID || TD_DARWIN_IOS || TD_DARWIN_WATCH_OS || TD_TIZEN
+#if TD_ANDROID || TD_DARWIN_IOS || TD_DARWIN_VISION_OS || TD_DARWIN_WATCH_OS || TD_TIZEN
       static constexpr int32 MAX_BACKOFF = 300;
 #else
       static constexpr int32 MAX_BACKOFF = 16;
@@ -206,7 +206,7 @@ class ConnectionCreator final : public NetQueryCallback {
   void loop() final;
 
   void init_proxies();
-  void save_dc_options();
+  void add_dc_options(DcOptions &&new_dc_options);
   Result<SocketFd> do_request_connection(DcId dc_id, bool allow_media_only);
   Result<std::pair<unique_ptr<mtproto::RawConnection>, bool>> do_request_raw_connection(DcId dc_id,
                                                                                         bool allow_media_only,

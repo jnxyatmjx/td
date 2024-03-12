@@ -85,6 +85,8 @@ class DialogManager final : public Actor {
 
   void reload_dialog_info(DialogId dialog_id, Promise<Unit> &&promise);
 
+  bool is_dialog_info_received_from_server(DialogId dialog_id) const;
+
   void get_dialog_info_full(DialogId dialog_id, Promise<Unit> &&promise, const char *source);
 
   void reload_dialog_info_full(DialogId dialog_id, const char *source);
@@ -135,6 +137,8 @@ class DialogManager final : public Actor {
 
   string get_dialog_about(DialogId dialog_id);
 
+  string get_dialog_search_text(DialogId dialog_id) const;
+
   bool get_dialog_has_protected_content(DialogId dialog_id) const;
 
   bool is_dialog_action_unneeded(DialogId dialog_id) const;
@@ -170,10 +174,15 @@ class DialogManager final : public Actor {
 
   Status can_pin_messages(DialogId dialog_id) const;
 
+  bool can_use_premium_custom_emoji_in_dialog(DialogId dialog_id) const;
+
   bool is_dialog_removed_from_dialog_list(DialogId dialog_id) const;
 
   void upload_dialog_photo(DialogId dialog_id, FileId file_id, bool is_animation, double main_frame_timestamp,
                            bool is_reupload, Promise<Unit> &&promise, vector<int> bad_parts = {});
+
+  void on_update_dialog_bot_commands(DialogId dialog_id, UserId bot_user_id,
+                                     vector<telegram_api::object_ptr<telegram_api::botCommand>> &&bot_commands);
 
   void on_dialog_usernames_updated(DialogId dialog_id, const Usernames &old_usernames, const Usernames &new_usernames);
 
@@ -202,10 +211,6 @@ class DialogManager final : public Actor {
 
   void reload_voice_chat_on_search(const string &username);
 
-  void on_resolved_username(const string &username, DialogId dialog_id);
-
-  void drop_username(const string &username);
-
  private:
   static constexpr size_t MAX_TITLE_LENGTH = 128;  // server side limit for chat title
 
@@ -222,6 +227,10 @@ class DialogManager final : public Actor {
                                     Promise<Unit> &&promise);
 
   void send_resolve_dialog_username_query(const string &username, Promise<Unit> &&promise);
+
+  void on_resolved_username(const string &username, Result<DialogId> r_dialog_id);
+
+  void drop_username(const string &username);
 
   void on_resolve_dialog(const string &username, ChannelId channel_id, Promise<DialogId> &&promise);
 
@@ -257,6 +266,8 @@ class DialogManager final : public Actor {
   WaitFreeHashMap<string, ResolvedUsername> resolved_usernames_;
   WaitFreeHashMap<string, DialogId> inaccessible_resolved_usernames_;
   FlatHashSet<string> reload_voice_chat_on_search_usernames_;
+
+  FlatHashMap<string, vector<Promise<Unit>>> resolve_dialog_username_queries_;
 
   Td *td_;
   ActorShared<> parent_;

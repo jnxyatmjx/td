@@ -21,6 +21,7 @@
 #include "td/telegram/net/MtprotoHeader.h"
 #include "td/telegram/net/NetQueryDispatcher.h"
 #include "td/telegram/NotificationManager.h"
+#include "td/telegram/PeopleNearbyManager.h"
 #include "td/telegram/ReactionType.h"
 #include "td/telegram/StateManager.h"
 #include "td/telegram/StickersManager.h"
@@ -138,6 +139,8 @@ OptionManager::OptionManager(Td *td)
   set_default_integer_option("group_emoji_status_level_min", is_test_dc ? 2 : 8);
   set_default_integer_option("group_wallpaper_level_min", is_test_dc ? 3 : 9);
   set_default_integer_option("group_custom_wallpaper_level_min", is_test_dc ? 4 : 10);
+  set_default_integer_option("quick_reply_shortcut_count_max", is_test_dc ? 10 : 100);
+  set_default_integer_option("quick_reply_shortcut_message_count_max", 20);
 
   if (options.isset("my_phone_number") || !options.isset("my_id")) {
     update_premium_options();
@@ -634,7 +637,8 @@ void OptionManager::get_option(const string &name, Promise<td_api::object_ptr<td
       }
       if (!is_bot && name == "is_location_visible") {
         if (is_td_inited_) {
-          send_closure_later(td_->contacts_manager_actor_, &ContactsManager::get_is_location_visible, wrap_promise());
+          send_closure_later(td_->people_nearby_manager_actor_, &PeopleNearbyManager::get_is_location_visible,
+                             wrap_promise());
         } else {
           pending_get_options_.emplace_back(name, std::move(promise));
         }
@@ -665,7 +669,7 @@ td_api::object_ptr<td_api::OptionValue> OptionManager::get_option_synchronously(
       break;
     case 'v':
       if (name == "version") {
-        return td_api::make_object<td_api::optionValueString>("1.8.25");
+        return td_api::make_object<td_api::optionValueString>("1.8.26");
       }
       break;
   }
@@ -840,7 +844,7 @@ void OptionManager::set_option(const string &name, td_api::object_ptr<td_api::Op
         return;
       }
       if (!is_bot && set_boolean_option("is_location_visible")) {
-        ContactsManager::set_location_visibility(td_);
+        PeopleNearbyManager::set_location_visibility(td_);
         return;
       }
       break;
