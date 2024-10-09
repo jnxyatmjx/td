@@ -373,7 +373,7 @@ void Session::connection_online_update(double now, bool force) {
 void Session::send(NetQueryPtr &&query) {
   last_activity_timestamp_ = Time::now();
 
-  // query->debug(PSTRING() << get_name() << ": received from SessionProxy");
+  // query->debug(PSTRING() << get_name() << ": received by Session");
   query->set_session_id(auth_data_.get_session_id());
   VLOG(net_query) << "Receive query " << query;
   if (query->update_is_ready()) {
@@ -565,8 +565,7 @@ void Session::on_connected() {
   }
 }
 
-Status Session::on_pong() {
-  constexpr int MAX_QUERY_TIMEOUT = 60;
+Status Session::on_pong(double ping_time, double pong_time, double current_time) {
   constexpr int MIN_CONNECTION_ACTIVE = 60;
   if (current_info_ == &main_connection_ &&
       Timestamp::at(current_info_->created_at_ + MIN_CONNECTION_ACTIVE).is_in_past()) {
@@ -574,16 +573,21 @@ Status Session::on_pong() {
     if (!unknown_queries_.empty()) {
       status = Status::Error(PSLICE() << "No state info for " << unknown_queries_.size() << " queries from auth key "
                                       << auth_data_.get_auth_key().id() << " for "
-                                      << format::as_time(Time::now() - current_info_->created_at_));
+                                      << format::as_time(Time::now() - current_info_->created_at_)
+                                      << " after ping sent at " << ping_time << " and answered at " << pong_time
+                                      << " with the current server time " << current_time);
     }
     if (!sent_queries_list_.empty()) {
+      double query_timeout = 60 + (current_time - ping_time);
       for (auto it = sent_queries_list_.prev; it != &sent_queries_list_; it = it->prev) {
         auto query = Query::from_list_node(it);
-        if (Timestamp::at(query->sent_at_ + MAX_QUERY_TIMEOUT).is_in_past()) {
+        if (Timestamp::at(query->sent_at_ + query_timeout).is_in_past()) {
           if (status.is_ok()) {
-            status = Status::Error(PSLICE()
-                                   << "No answer from auth key " << auth_data_.get_auth_key().id() << " for "
-                                   << query->net_query_ << " for " << format::as_time(Time::now() - query->sent_at_));
+            status =
+                Status::Error(PSLICE() << "No answer from auth key " << auth_data_.get_auth_key().id() << " for "
+                                       << query->net_query_ << " for " << format::as_time(Time::now() - query->sent_at_)
+                                       << " after ping sent at " << ping_time << " and answered at " << pong_time
+                                       << " with the current server time " << current_time);
           }
           query->is_acknowledged_ = false;
         } else {
@@ -646,9 +650,15 @@ void Session::on_closed(Status status) {
         auth_data_.set_use_pfs(true);
       } else if (need_check_main_key_) {
         LOG(WARNING) << "Invalidate main key";
+        bool can_drop_main_auth_key_without_logging_out =
+            !is_main_ && G()->net_query_dispatcher().get_main_dc_id().get_raw_id() != raw_dc_id_;
         auth_data_.drop_main_auth_key();
         on_auth_key_updated();
-        G()->log_out("Main PFS authorization key is invalid");
+        if (can_drop_main_auth_key_without_logging_out) {
+          on_session_failed(status.clone());
+        } else {
+          G()->log_out("Main PFS authorization key is invalid");
+        }
       } else {
         LOG(WARNING) << "Session connection was closed: " << status << ' ' << current_info_->connection_->get_name();
       }
@@ -1345,8 +1355,8 @@ bool Session::connection_send_check_main_key(ConnectionInfo *info) {
   LOG(INFO) << "Check main key";
   being_checked_main_auth_key_id_ = key_id;
   last_check_query_id_ = UniqueId::next(UniqueId::BindKey);
-  NetQueryPtr query = G()->net_query_creator().create(last_check_query_id_, telegram_api::help_getNearestDc(), {},
-                                                      DcId::main(), NetQuery::Type::Common, NetQuery::AuthFlag::On);
+  NetQueryPtr query = G()->net_query_creator().create(last_check_query_id_, nullptr, telegram_api::help_getNearestDc(),
+                                                      {}, DcId::main(), NetQuery::Type::Common, NetQuery::AuthFlag::On);
   query->dispatch_ttl_ = 0;
   query->set_callback(actor_shared(this));
   connection_send_query(info, std::move(query));
@@ -1382,7 +1392,7 @@ bool Session::connection_send_bind_key(ConnectionInfo *info) {
 
   LOG(INFO) << "Bind key: " << tag("tmp", key_id) << tag("perm", static_cast<uint64>(perm_auth_key_id));
   NetQueryPtr query = G()->net_query_creator().create(
-      last_bind_query_id_,
+      last_bind_query_id_, nullptr,
       telegram_api::auth_bindTempAuthKey(perm_auth_key_id, nonce, expires_at, std::move(encrypted)), {}, DcId::main(),
       NetQuery::Type::Common, NetQuery::AuthFlag::On);
   query->dispatch_ttl_ = 0;
