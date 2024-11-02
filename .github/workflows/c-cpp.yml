@@ -28,7 +28,7 @@ jobs:
     steps:
     # This step references the directory that contains the action.
     # This step checks out a copy of your repository.
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
           # by default, it uses a depth of 1
           # this fetches all history so that we can read each commit
@@ -41,6 +41,7 @@ jobs:
         echo -e "workspcace->$GITHUB_WORKSPACE"
     
     - name: cmake-configure
+      id: compilexx
       run: |
         sudo apt-get install make git zlib1g-dev libssl-dev gperf php-cli cmake g++
         git submodule update --init --recursive
@@ -49,25 +50,65 @@ jobs:
         cd bld_
         cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX:PATH=../tdlib_${{ matrix.os }} ../
         cmake --build ./ --target install -j$(nproc)
+        echo "stat=success" >> $GITHUB_OUTPUT
         
     - name: tar files
+      id: tartt
+      if: steps.compilexx.outputs.stat == 'success'
       run: |
         cd $GITHUB_WORKSPACE
         tar -cjvf ./tdlib_${{ matrix.os }}.tar.bz2 ./tdlib_${{ matrix.os }}/lib/libtd*
-        
-    - name: generate release tag
-      id: tag
-      run: |
-        echo -e "release_tag=$(date +"%Y.%m.%d-%H%M%S")" >> $GITHUB_OUTPUT
-        touch release.txt
-        echo -e "stat=success" >> $GITHUB_OUTPUT
-        
-    - name: push to release
-      uses: softprops/action-gh-release@v1
-      if: steps.tag.outputs.stat == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        echo "stat=oxk" >> $GITHUB_OUTPUT
+
+    - name: upload file & directory
+      uses: actions/upload-artifact@v4
+      if: steps.tartt.outputs.stat == 'oxk'
       with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: ./tdlib_${{ matrix.os }}.tar.bz2
+        name: ${{ matrix.os }}
+        path: ./tdlib_${{ matrix.os }}.tar.bz2
+
+########################################Merge all workflows################################################
+  mergeall:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: create release folder
+        run: |
+          sudo timedatectl set-timezone Asia/Shanghai
+          sudo mkdir $GITHUB_WORKSPACE/rellxx
+          sudo chown $USER:$GROUPS $GITHUB_WORKSPACE/rellxx
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ubuntu-20.04
+          path: ${{ github.workspace }}/rellxx
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ubuntu-22.04
+          path: ${{ github.workspace }}/rellxx
+
+      - name: generate release tag
+        id: tag
+        run: |
+          echo -e "release_tag=$(date +"%Y.%m.%d-%H%M%S")" >> $GITHUB_OUTPUT
+          touch release.txt
+          echo -e "stat=success" >> $GITHUB_OUTPUT
+
+      - name: push to release
+        uses: softprops/action-gh-release@v2
+        if: steps.tag.outputs.stat == 'success' && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: ${{ github.workspace }}/rellxx/*
