@@ -588,7 +588,7 @@ class MessagesManager final : public Actor {
   void get_callback_query_message(DialogId dialog_id, MessageId message_id, int64 callback_query_id,
                                   Promise<Unit> &&promise);
 
-  bool get_messages(DialogId dialog_id, const vector<MessageId> &message_ids, Promise<Unit> &&promise);
+  void get_messages(DialogId dialog_id, const vector<MessageId> &message_ids, Promise<Unit> &&promise);
 
   void get_message_from_server(MessageFullId message_full_id, Promise<Unit> &&promise, const char *source,
                                tl_object_ptr<telegram_api::InputMessage> input_message = nullptr);
@@ -2900,6 +2900,10 @@ class MessagesManager final : public Actor {
 
   void ttl_db_on_result(Result<std::vector<MessageDbMessage>> r_result, bool dummy);
 
+  void schedule_restore_missing_messages_after_get_difference();
+
+  void restore_missing_messages_after_get_difference();
+
   void on_restore_missing_message_after_get_difference(MessageFullId message_full_id, MessageId old_message_id,
                                                        Result<Unit> result);
 
@@ -3118,6 +3122,8 @@ class MessagesManager final : public Actor {
 
   static void on_live_location_expire_timeout_callback(void *messages_manager_ptr);
 
+  static void on_restore_missing_messages_timeout_callback(void *messages_manager_ptr);
+
   void on_live_location_expire_timeout();
 
   void load_secret_thumbnail(FileUploadId thumbnail_file_upload_id);
@@ -3327,7 +3333,8 @@ class MessagesManager final : public Actor {
   FlatHashMap<MessageFullId, MessageId, MessageFullIdHash> update_message_ids_;  // new_message_id -> temporary_id
   FlatHashMap<DialogId, FlatHashMap<ScheduledServerMessageId, MessageId, ScheduledServerMessageIdHash>,
               DialogIdHash>
-      update_scheduled_message_ids_;  // new_message_id -> temporary_id
+      update_scheduled_message_ids_;                                              // new_message_id -> temporary_id
+  FlatHashMap<MessageFullId, MessageId, MessageFullIdHash> messages_to_restore_;  // new_message_id -> temporary_id
 
   FlatHashSet<MessageFullId, MessageFullIdHash> published_video_message_full_ids_;
 
@@ -3454,6 +3461,7 @@ class MessagesManager final : public Actor {
   MultiTimeout send_update_chat_read_inbox_timeout_{"SendUpdateChatReadInboxTimeout"};
 
   Timeout live_location_expire_timeout_;
+  Timeout restore_missing_messages_timeout_;
 
   Hints dialogs_hints_;  // search dialogs by title and usernames
 
