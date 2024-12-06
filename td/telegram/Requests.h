@@ -1043,6 +1043,8 @@ class Requests {
 
   void on_request(uint64 id, const td_api::getRecentInlineBots &request);
 
+  void on_request(uint64 id, const td_api::getOwnedBots &request);
+
   void on_request(uint64 id, td_api::setName &request);
 
   void on_request(uint64 id, td_api::setBio &request);
@@ -1568,6 +1570,20 @@ class Requests {
   void on_request(uint64 id, td_api::editUserStarSubscription &request);
 
   void on_request(uint64 id, td_api::reuseStarSubscription &request);
+
+  void on_request(uint64 id, const td_api::setChatAffiliateProgram &request);
+
+  void on_request(uint64 id, td_api::searchChatAffiliateProgram &request);
+
+  void on_request(uint64 id, td_api::searchAffiliatePrograms &request);
+
+  void on_request(uint64 id, const td_api::connectChatAffiliateProgram &request);
+
+  void on_request(uint64 id, td_api::disconnectChatAffiliateProgram &request);
+
+  void on_request(uint64 id, const td_api::getChatAffiliateProgram &request);
+
+  void on_request(uint64 id, td_api::getChatAffiliatePrograms &request);
 
   void on_request(uint64 id, td_api::canPurchaseFromStore &request);
 
