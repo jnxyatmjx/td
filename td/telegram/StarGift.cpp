@@ -7,7 +7,9 @@
 #include "td/telegram/StarGift.h"
 
 #include "td/telegram/Dependencies.h"
+#include "td/telegram/DialogManager.h"
 #include "td/telegram/MessageSender.h"
+#include "td/telegram/StarGiftId.h"
 #include "td/telegram/StarManager.h"
 #include "td/telegram/StickerFormat.h"
 #include "td/telegram/StickersManager.h"
@@ -36,8 +38,10 @@ StarGift::StarGift(Td *td, telegram_api::object_ptr<telegram_api::StarGift> &&st
     }
     owner_name_ = std::move(star_gift->owner_name_);
     owner_address_ = std::move(star_gift->owner_address_);
+    gift_address_ = std::move(star_gift->gift_address_);
     unique_availability_issued_ = star_gift->availability_issued_;
     unique_availability_total_ = star_gift->availability_total_;
+    resale_star_count_ = StarManager::get_star_count(star_gift->resell_stars_);
     for (auto &attribute : star_gift->attributes_) {
       switch (attribute->get_id()) {
         case telegram_api::starGiftAttributeModel::ID:
@@ -144,9 +148,18 @@ td_api::object_ptr<td_api::upgradedGift> StarGift::get_upgraded_gift_object(Td *
   return td_api::make_object<td_api::upgradedGift>(
       id_, title_, slug_, num_, unique_availability_issued_, unique_availability_total_,
       !owner_dialog_id_.is_valid() ? nullptr : get_message_sender_object(td, owner_dialog_id_, "upgradedGift"),
-      owner_address_, owner_name_, model_.get_upgraded_gift_model_object(td),
+      owner_address_, owner_name_, gift_address_, model_.get_upgraded_gift_model_object(td),
       pattern_.get_upgraded_gift_symbol_object(td), backdrop_.get_upgraded_gift_backdrop_object(),
-      original_details_.get_upgraded_gift_original_details_object(td));
+      original_details_.get_upgraded_gift_original_details_object(td), resale_star_count_);
+}
+
+td_api::object_ptr<td_api::giftForResale> StarGift::get_gift_for_resale_object(Td *td) const {
+  CHECK(is_valid());
+  CHECK(is_unique_);
+  return td_api::make_object<td_api::giftForResale>(get_upgraded_gift_object(td),
+                                                    owner_dialog_id_ == td->dialog_manager_->get_my_dialog_id()
+                                                        ? StarGiftId::from_slug(slug_).get_star_gift_id()
+                                                        : string());
 }
 
 td_api::object_ptr<td_api::SentGift> StarGift::get_sent_gift_object(Td *td) const {
@@ -171,9 +184,11 @@ bool operator==(const StarGift &lhs, const StarGift &rhs) {
          lhs.is_unique_ == rhs.is_unique_ && lhs.model_ == rhs.model_ && lhs.pattern_ == rhs.pattern_ &&
          lhs.backdrop_ == rhs.backdrop_ && lhs.original_details_ == rhs.original_details_ && lhs.title_ == rhs.title_ &&
          lhs.slug_ == rhs.slug_ && lhs.owner_dialog_id_ == rhs.owner_dialog_id_ &&
-         lhs.owner_address_ == rhs.owner_address_ && lhs.owner_name_ == rhs.owner_name_ && lhs.num_ == rhs.num_ &&
+         lhs.owner_address_ == rhs.owner_address_ && lhs.owner_name_ == rhs.owner_name_ &&
+         lhs.gift_address_ == rhs.gift_address_ && lhs.num_ == rhs.num_ &&
          lhs.unique_availability_issued_ == rhs.unique_availability_issued_ &&
-         lhs.unique_availability_total_ == rhs.unique_availability_total_;
+         lhs.unique_availability_total_ == rhs.unique_availability_total_ &&
+         lhs.resale_star_count_ == rhs.resale_star_count_;
 }
 
 StringBuilder &operator<<(StringBuilder &string_builder, const StarGift &star_gift) {

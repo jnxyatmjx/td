@@ -43,9 +43,11 @@ class StarGift {
   DialogId owner_dialog_id_;
   string owner_address_;
   string owner_name_;
+  string gift_address_;
   int32 num_ = 0;
   int32 unique_availability_issued_ = 0;
   int32 unique_availability_total_ = 0;
+  int64 resale_star_count_ = 0;
 
   friend bool operator==(const StarGift &lhs, const StarGift &rhs);
 
@@ -82,6 +84,8 @@ class StarGift {
   td_api::object_ptr<td_api::gift> get_gift_object(const Td *td) const;
 
   td_api::object_ptr<td_api::upgradedGift> get_upgraded_gift_object(Td *td) const;
+
+  td_api::object_ptr<td_api::giftForResale> get_gift_for_resale_object(Td *td) const;
 
   td_api::object_ptr<td_api::SentGift> get_sent_gift_object(Td *td) const;
 

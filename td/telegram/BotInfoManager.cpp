@@ -598,14 +598,11 @@ class SetCustomVerificationQuery final : public Td::ResultHandler {
     if (input_user != nullptr) {
       flags |= telegram_api::bots_setCustomVerification::BOT_MASK;
     }
-    if (is_verified) {
-      flags |= telegram_api::bots_setCustomVerification::ENABLED_MASK;
-    }
     if (!custom_description.empty()) {
       flags |= telegram_api::bots_setCustomVerification::CUSTOM_DESCRIPTION_MASK;
     }
     send_query(G()->net_query_creator().create(
-        telegram_api::bots_setCustomVerification(flags, false /*ignored*/, std::move(input_user), std::move(input_peer),
+        telegram_api::bots_setCustomVerification(flags, is_verified, std::move(input_user), std::move(input_peer),
                                                  custom_description),
         {{dialog_id}}));
   }
@@ -969,10 +966,10 @@ telegram_api::object_ptr<telegram_api::InputMedia> BotInfoManager::get_fake_inpu
   switch (file_view.get_type()) {
     case FileType::VideoStory:
       return telegram_api::make_object<telegram_api::inputMediaDocument>(
-          0, false /*ignored*/, full_remote_location->as_input_document(), nullptr, 0, 0, string());
+          0, false, full_remote_location->as_input_document(), nullptr, 0, 0, string());
     case FileType::PhotoStory:
-      return telegram_api::make_object<telegram_api::inputMediaPhoto>(0, false /*ignored*/,
-                                                                      full_remote_location->as_input_photo(), 0);
+      return telegram_api::make_object<telegram_api::inputMediaPhoto>(0, false, full_remote_location->as_input_photo(),
+                                                                      0);
     default:
       return nullptr;
   }
@@ -1069,8 +1066,9 @@ void BotInfoManager::set_custom_bot_verification(UserId bot_user_id, DialogId di
   if (bot_user_id != UserId()) {
     TRY_RESULT_PROMISE_ASSIGN(promise, bot_input_user, td_->user_manager_->get_input_user(bot_user_id));
   }
-  TRY_STATUS_PROMISE(promise, td_->dialog_manager_->check_dialog_access(dialog_id, false, AccessRights::Read,
-                                                                        "set_custom_bot_verification"));
+  if (!td_->dialog_manager_->have_input_peer(dialog_id, false, AccessRights::Read)) {
+    return promise.set_error(Status::Error(400, "Can't access the verified entity"));
+  }
   td_->create_handler<SetCustomVerificationQuery>(std::move(promise))
       ->send(std::move(bot_input_user), dialog_id, is_verified, custom_description);
 }

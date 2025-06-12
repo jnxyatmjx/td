@@ -45,13 +45,13 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
     Slice key;
     Slice value;
     template <class StorerT>
-    void store(StorerT &&storer) const {
+    void store(StorerT &storer) const {
       storer.store_string(key);
       storer.store_string(value);
     }
 
     template <class ParserT>
-    void parse(ParserT &&parser) {
+    void parse(ParserT &parser) {
       key = parser.template fetch_string<Slice>();
       value = parser.template fetch_string<Slice>();
     }
@@ -84,7 +84,10 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
         name,
         [&](const BinlogEvent &binlog_event) {
           Event event;
-          event.parse(TlParser(binlog_event.get_data()));
+          TlParser event_parser(binlog_event.get_data());
+          event.parse(event_parser);
+          event_parser.fetch_end();
+          LOG_CHECK(event_parser.get_error() == nullptr) << event_parser.get_status();
           if (event.key.empty()) {
             LOG(ERROR) << "Have event with empty key";
             return;
@@ -109,7 +112,10 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
 
   void external_init_handle(const BinlogEvent &binlog_event) {
     Event event;
-    event.parse(TlParser(binlog_event.get_data()));
+    TlParser event_parser(binlog_event.get_data());
+    event.parse(event_parser);
+    event_parser.fetch_end();
+    LOG_CHECK(event_parser.get_error() == nullptr) << event_parser.get_status();
     if (event.key.empty()) {
       LOG(ERROR) << "Have external event with empty key";
       return;
@@ -129,7 +135,7 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
   }
 
   SeqNo set(string key, string value) final {
-    auto lock = rw_mutex_.lock_write().move_as_ok();
+    auto lock = rw_mutex_.lock_write();
     uint64 old_event_id = 0;
     CHECK(!key.empty());
     auto it_ok = map_.emplace(key, std::make_pair(value, 0));
@@ -162,7 +168,7 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
   }
 
   SeqNo erase(const string &key) final {
-    auto lock = rw_mutex_.lock_write().move_as_ok();
+    auto lock = rw_mutex_.lock_write();
     auto it = map_.find(key);
     if (it == map_.end()) {
       return 0;
@@ -178,7 +184,7 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
   }
 
   SeqNo erase_batch(vector<string> keys) final {
-    auto lock = rw_mutex_.lock_write().move_as_ok();
+    auto lock = rw_mutex_.lock_write();
     vector<uint64> log_event_ids;
     for (auto &key : keys) {
       auto it = map_.find(key);
@@ -199,12 +205,12 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
   }
 
   bool isset(const string &key) final {
-    auto lock = rw_mutex_.lock_read().move_as_ok();
+    auto lock = rw_mutex_.lock_read();
     return map_.count(key) > 0;
   }
 
   string get(const string &key) final {
-    auto lock = rw_mutex_.lock_read().move_as_ok();
+    auto lock = rw_mutex_.lock_read();
     auto it = map_.find(key);
     if (it == map_.end()) {
       return string();
@@ -222,14 +228,14 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
   }
 
   void for_each(std::function<void(Slice, Slice)> func) final {
-    auto lock = rw_mutex_.lock_write().move_as_ok();
+    auto lock = rw_mutex_.lock_write();
     for (const auto &kv : map_) {
       func(kv.first, kv.second.first);
     }
   }
 
   std::unordered_map<string, string, Hash<string>> prefix_get(Slice prefix) final {
-    auto lock = rw_mutex_.lock_write().move_as_ok();
+    auto lock = rw_mutex_.lock_write();
     std::unordered_map<string, string, Hash<string>> res;
     for (const auto &kv : map_) {
       if (begins_with(kv.first, prefix)) {
@@ -240,7 +246,7 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
   }
 
   FlatHashMap<string, string> get_all() final {
-    auto lock = rw_mutex_.lock_write().move_as_ok();
+    auto lock = rw_mutex_.lock_write();
     FlatHashMap<string, string> res;
     res.reserve(map_.size());
     for (const auto &kv : map_) {
@@ -250,7 +256,7 @@ class BinlogKeyValue final : public KeyValueSyncInterface {
   }
 
   void erase_by_prefix(Slice prefix) final {
-    auto lock = rw_mutex_.lock_write().move_as_ok();
+    auto lock = rw_mutex_.lock_write();
     vector<uint64> event_ids;
     table_remove_if(map_, [&](const auto &it) {
       if (begins_with(it.first, prefix)) {

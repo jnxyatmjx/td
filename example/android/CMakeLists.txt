@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.4.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
 project(TdAndroid VERSION 1.0 LANGUAGES CXX)
 
@@ -40,6 +40,11 @@ if (CMAKE_CROSSCOMPILING)
     target_link_libraries(tdjni PRIVATE Td::TdStatic)
   endif()
   target_compile_definitions(tdjni PRIVATE PACKAGE_NAME="org/drinkless/tdlib")
+
+  if (${ANDROID_ABI} STREQUAL "arm64-v8a" OR ${ANDROID_ABI} STREQUAL "x86_64")
+    # Enable 16 KB ELF alignment.
+    target_link_options(tdjni PRIVATE "-Wl,-z,max-page-size=16384")
+  endif()
 
   add_custom_command(TARGET tdjni POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E rename $<TARGET_FILE:tdjni> $<TARGET_FILE:tdjni>.debug

@@ -233,16 +233,13 @@ class GetNotifySettingsExceptionsQuery final : public Td::ResultHandler {
 
   void send(NotificationSettingsScope scope, bool filter_scope, bool compare_sound) {
     int32 flags = 0;
-    tl_object_ptr<telegram_api::InputNotifyPeer> input_notify_peer;
+    telegram_api::object_ptr<telegram_api::InputNotifyPeer> input_notify_peer;
     if (filter_scope) {
       flags |= telegram_api::account_getNotifyExceptions::PEER_MASK;
       input_notify_peer = get_input_notify_peer(scope);
     }
-    if (compare_sound) {
-      flags |= telegram_api::account_getNotifyExceptions::COMPARE_SOUND_MASK;
-    }
-    send_query(G()->net_query_creator().create(telegram_api::account_getNotifyExceptions(
-        flags, false /*ignored*/, false /*ignored*/, std::move(input_notify_peer))));
+    send_query(G()->net_query_creator().create(
+        telegram_api::account_getNotifyExceptions(flags, compare_sound, false, std::move(input_notify_peer))));
   }
 
   void on_result(BufferSlice packet) final {
@@ -295,9 +292,7 @@ class GetStoryNotifySettingsExceptionsQuery final : public Td::ResultHandler {
   }
 
   void send() {
-    int32 flags = telegram_api::account_getNotifyExceptions::COMPARE_STORIES_MASK;
-    send_query(G()->net_query_creator().create(
-        telegram_api::account_getNotifyExceptions(flags, false /*ignored*/, false /*ignored*/, nullptr)));
+    send_query(G()->net_query_creator().create(telegram_api::account_getNotifyExceptions(0, false, true, nullptr)));
   }
 
   void on_result(BufferSlice packet) final {
@@ -637,7 +632,6 @@ void NotificationSettingsManager::init() {
   }
   is_inited_ = true;
 
-  bool is_authorized = td_->auth_manager_->is_authorized();
   bool was_authorized_user = td_->auth_manager_->was_authorized() && !td_->auth_manager_->is_bot();
   if (was_authorized_user) {
     for (auto scope :
@@ -655,14 +649,6 @@ void NotificationSettingsManager::init() {
 
         send_closure(G()->td(), &Td::send_update, get_update_scope_notification_settings_object(scope));
       }
-    }
-    if (!channels_notification_settings_.is_synchronized && is_authorized) {
-      channels_notification_settings_ = ScopeNotificationSettings(
-          chats_notification_settings_.mute_until, dup_notification_sound(chats_notification_settings_.sound),
-          chats_notification_settings_.show_preview, chats_notification_settings_.use_default_mute_stories,
-          chats_notification_settings_.mute_stories, nullptr, false, false, false);
-      channels_notification_settings_.is_synchronized = false;
-      send_get_scope_notification_settings_query(NotificationSettingsScope::Channel, Promise<>());
     }
     auto reaction_notification_settings_string =
         G()->td_db()->get_binlog_pmc()->get(get_reaction_notification_settings_database_key());

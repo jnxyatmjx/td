@@ -28,9 +28,12 @@ class UserStarGift {
   int64 upgrade_star_count_ = 0;
   int64 transfer_star_count_ = 0;
   int32 date_ = 0;
+  int32 can_transfer_at_ = 0;
+  int32 can_resell_at_ = 0;
   int32 can_export_at_ = 0;
   bool is_name_hidden_ = false;
   bool is_saved_ = false;
+  bool is_pinned_ = false;
   bool can_upgrade_ = false;
   bool can_transfer_ = false;
   bool was_refunded_ = false;

@@ -84,7 +84,7 @@ bool need_update_profile_photo(const ProfilePhoto &from, const ProfilePhoto &to)
 StringBuilder &operator<<(StringBuilder &string_builder, const ProfilePhoto &profile_photo);
 
 DialogPhoto get_dialog_photo(FileManager *file_manager, DialogId dialog_id, int64 dialog_access_hash,
-                             tl_object_ptr<telegram_api::ChatPhoto> &&chat_photo_ptr);
+                             telegram_api::object_ptr<telegram_api::ChatPhoto> &&chat_photo_ptr);
 
 tl_object_ptr<td_api::chatPhotoInfo> get_chat_photo_info_object(FileManager *file_manager,
                                                                 const DialogPhoto *dialog_photo);
@@ -145,7 +145,8 @@ tl_object_ptr<telegram_api::InputMedia> photo_get_input_media(
     int32 ttl, bool has_spoiler);
 
 telegram_api::object_ptr<telegram_api::InputMedia> photo_get_cover_input_media(FileManager *file_manager,
-                                                                               const Photo &photo, bool force);
+                                                                               const Photo &photo, bool force,
+                                                                               bool allow_external);
 
 vector<FileId> photo_get_file_ids(const Photo &photo);
 
@@ -154,7 +155,7 @@ bool operator!=(const Photo &lhs, const Photo &rhs);
 
 StringBuilder &operator<<(StringBuilder &string_builder, const Photo &photo);
 
-tl_object_ptr<telegram_api::userProfilePhoto> convert_photo_to_profile_photo(
-    const tl_object_ptr<telegram_api::photo> &photo, bool is_personal);
+telegram_api::object_ptr<telegram_api::userProfilePhoto> convert_photo_to_profile_photo(
+    const telegram_api::object_ptr<telegram_api::photo> &photo, bool is_personal);
 
 }  // namespace td
