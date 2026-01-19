@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
-project(TDLib VERSION 1.8.56 LANGUAGES CXX C)
+project(TDLib VERSION 1.8.60 LANGUAGES CXX C)
 
 if (NOT DEFINED CMAKE_MODULE_PATH)
   set(CMAKE_MODULE_PATH "")
@@ -119,10 +119,9 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
   endif()
 
-  if (TD_ENABLE_JNI)
-    # https://github.com/tdlib/td/issues/2912
-    add_definitions(-D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
-  endif()
+  # https://github.com/tdlib/td/issues/2912
+  # https://github.com/tdlib/td/issues/3202
+  add_definitions(-D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 endif()
 
 if (CLANG OR GCC)
@@ -342,12 +341,14 @@ set(TD_MTPROTO_SOURCE
 
 set(TDLIB_SOURCE_PART1
   td/telegram/AccountManager.cpp
+  td/telegram/ActiveStoryState.cpp
   td/telegram/AffiliateType.cpp
   td/telegram/AgeVerificationParameters.cpp
   td/telegram/AlarmManager.cpp
   td/telegram/AnimationsManager.cpp
   td/telegram/Application.cpp
   td/telegram/AttachMenuManager.cpp
+  td/telegram/AuctionBidLevel.cpp
   td/telegram/AudiosManager.cpp
   td/telegram/AuthManager.cpp
   td/telegram/AutoDownloadSettings.cpp
@@ -428,6 +429,7 @@ set(TDLIB_SOURCE_PART1
   td/telegram/DownloadManagerCallback.cpp
   td/telegram/DraftMessage.cpp
   td/telegram/EmailVerification.cpp
+  td/telegram/EmojiGameInfo.cpp
   td/telegram/EmojiGroup.cpp
   td/telegram/EmojiGroupType.cpp
   td/telegram/EmojiStatus.cpp
@@ -466,6 +468,8 @@ set(TDLIB_SOURCE_PART1
   td/telegram/GlobalPrivacySettings.cpp
   td/telegram/GroupCallJoinParameters.cpp
   td/telegram/GroupCallManager.cpp
+  td/telegram/GroupCallMessage.cpp
+  td/telegram/GroupCallMessageLimit.cpp
   td/telegram/GroupCallParticipant.cpp
   td/telegram/GroupCallParticipantOrder.cpp
   td/telegram/GroupCallVideoPayload.cpp
@@ -488,6 +492,7 @@ set(TDLIB_SOURCE_PART1
   td/telegram/MediaAreaCoordinates.cpp
   td/telegram/MessageContent.cpp
   td/telegram/MessageContentType.cpp
+  td/telegram/MessageCopyOptions.cpp
   td/telegram/MessageDb.cpp
   td/telegram/MessageEntity.cpp
   td/telegram/MessageExtendedMedia.cpp
@@ -506,6 +511,7 @@ set(TDLIB_SOURCE_PART1
   td/telegram/MessageSearchOffset.cpp
   td/telegram/MessageSelfDestructType.cpp
   td/telegram/MessageSender.cpp
+  td/telegram/MessageSendOptions.cpp
   td/telegram/MessagesInfo.cpp
   td/telegram/MessagesManager.cpp
   td/telegram/MessageSource.cpp
@@ -551,6 +557,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/OrderInfo.cpp
   td/telegram/Outline.cpp
   td/telegram/PaidReactionType.cpp
+  td/telegram/Passkey.cpp
   td/telegram/PasswordManager.cpp
   td/telegram/Payments.cpp
   td/telegram/PeerColor.cpp
@@ -606,6 +613,10 @@ set(TDLIB_SOURCE_PART2
   td/telegram/StarGift.cpp
   td/telegram/StarGiftAttribute.cpp
   td/telegram/StarGiftAttributeId.cpp
+  td/telegram/StarGiftAuctionRound.cpp
+  td/telegram/StarGiftAuctionState.cpp
+  td/telegram/StarGiftAuctionUserState.cpp
+  td/telegram/StarGiftBackground.cpp
   td/telegram/StarGiftCollection.cpp
   td/telegram/StarGiftId.cpp
   td/telegram/StarGiftManager.cpp
@@ -643,6 +654,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/TargetDialogTypes.cpp
   td/telegram/Td.cpp
   td/telegram/TdDb.cpp
+  td/telegram/TempPasswordState.cpp
   td/telegram/TermsOfService.cpp
   td/telegram/TermsOfServiceManager.cpp
   td/telegram/ThemeManager.cpp
@@ -677,6 +689,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/AccentColorId.h
   td/telegram/AccessRights.h
   td/telegram/AccountManager.h
+  td/telegram/ActiveStoryState.h
   td/telegram/AffectedHistory.h
   td/telegram/AffiliateType.h
   td/telegram/AgeVerificationParameters.h
@@ -684,6 +697,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/AnimationsManager.h
   td/telegram/Application.h
   td/telegram/AttachMenuManager.h
+  td/telegram/AuctionBidLevel.h
   td/telegram/AudiosManager.h
   td/telegram/AuthManager.h
   td/telegram/AutoDownloadSettings.h
@@ -779,6 +793,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/DownloadManagerCallback.h
   td/telegram/DraftMessage.h
   td/telegram/EmailVerification.h
+  td/telegram/EmojiGameInfo.h
   td/telegram/EmojiGroup.h
   td/telegram/EmojiGroupType.h
   td/telegram/EmojiStatus.h
@@ -830,6 +845,8 @@ set(TDLIB_SOURCE_PART2
   td/telegram/GroupCallJoinParameters.h
   td/telegram/GroupCallId.h
   td/telegram/GroupCallManager.h
+  td/telegram/GroupCallMessage.h
+  td/telegram/GroupCallMessageLimit.h
   td/telegram/GroupCallParticipant.h
   td/telegram/GroupCallParticipantOrder.h
   td/telegram/GroupCallVideoPayload.h
@@ -877,6 +894,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/MessageSearchOffset.h
   td/telegram/MessageSelfDestructType.h
   td/telegram/MessageSender.h
+  td/telegram/MessageSendOptions.h
   td/telegram/MessagesInfo.h
   td/telegram/MessagesManager.h
   td/telegram/MessageSource.h
@@ -936,6 +954,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/OrderInfo.h
   td/telegram/Outline.h
   td/telegram/PaidReactionType.h
+  td/telegram/Passkey.h
   td/telegram/PasswordManager.h
   td/telegram/Payments.h
   td/telegram/PeerColor.h
@@ -1005,6 +1024,10 @@ set(TDLIB_SOURCE_PART2
   td/telegram/StarGift.h
   td/telegram/StarGiftAttribute.h
   td/telegram/StarGiftAttributeId.h
+  td/telegram/StarGiftAuctionRound.h
+  td/telegram/StarGiftAuctionState.h
+  td/telegram/StarGiftAuctionUserState.h
+  td/telegram/StarGiftBackground.h
   td/telegram/StarGiftCollection.h
   td/telegram/StarGiftCollectionId.h
   td/telegram/StarGiftId.h
@@ -1050,6 +1073,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/Td.h
   td/telegram/TdCallback.h
   td/telegram/TdDb.h
+  td/telegram/TempPasswordState.h
   td/telegram/TermsOfService.h
   td/telegram/TermsOfServiceManager.h
   td/telegram/ThemeManager.h
@@ -1129,6 +1153,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/ForumTopicInfo.hpp
   td/telegram/Game.hpp
   td/telegram/GiveawayParameters.hpp
+  td/telegram/GroupCallMessageLimit.hpp
   td/telegram/InputInvoice.hpp
   td/telegram/InputMessageText.hpp
   td/telegram/MediaArea.hpp
@@ -1170,6 +1195,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/StarAmount.hpp
   td/telegram/StarGift.hpp
   td/telegram/StarGiftAttribute.hpp
+  td/telegram/StarGiftBackground.hpp
   td/telegram/StarGiftId.hpp
   td/telegram/StarGiftResalePrice.hpp
   td/telegram/StarGiftSettings.hpp
@@ -1184,6 +1210,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/SuggestedAction.hpp
   td/telegram/SuggestedPost.hpp
   td/telegram/SuggestedPostPrice.hpp
+  td/telegram/TempPasswordState.hpp
   td/telegram/TermsOfService.hpp
   td/telegram/ThemeSettings.hpp
   td/telegram/ToDoCompletion.hpp

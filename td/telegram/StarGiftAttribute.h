@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -24,7 +24,7 @@ class Td;
 class StarGiftAttributeSticker {
   string name_;
   FileId sticker_file_id_;
-  int32 rarity_permille_ = 0;
+  int32 rarity_permille_ = -1;
 
   friend bool operator==(const StarGiftAttributeSticker &lhs, const StarGiftAttributeSticker &rhs);
 
@@ -36,7 +36,7 @@ class StarGiftAttributeSticker {
   StarGiftAttributeSticker(Td *td, telegram_api::object_ptr<telegram_api::starGiftAttributePattern> &&attribute);
 
   bool is_valid() const {
-    return 0 < rarity_permille_ && rarity_permille_ <= 1000 && sticker_file_id_.is_valid();
+    return 0 <= rarity_permille_ && rarity_permille_ <= 1000 && sticker_file_id_.is_valid();
   }
 
   td_api::object_ptr<td_api::upgradedGiftModel> get_upgraded_gift_model_object(const Td *td) const;
@@ -65,23 +65,16 @@ class StarGiftAttributeBackdrop {
   int32 edge_color_ = 0;
   int32 pattern_color_ = 0;
   int32 text_color_ = 0;
-  int32 rarity_permille_ = 0;
+  int32 rarity_permille_ = -1;
 
   friend bool operator==(const StarGiftAttributeBackdrop &lhs, const StarGiftAttributeBackdrop &rhs);
-
-  bool is_valid_color(int32 color) const {
-    return 0 <= color && color <= 0xFFFFFF;
-  }
 
  public:
   StarGiftAttributeBackdrop() = default;
 
   explicit StarGiftAttributeBackdrop(telegram_api::object_ptr<telegram_api::starGiftAttributeBackdrop> &&attribute);
 
-  bool is_valid() const {
-    return 0 < rarity_permille_ && rarity_permille_ <= 1000 && is_valid_color(center_color_) &&
-           is_valid_color(edge_color_) && is_valid_color(pattern_color_) && is_valid_color(text_color_);
-  }
+  bool is_valid() const;
 
   td_api::object_ptr<td_api::upgradedGiftBackdrop> get_upgraded_gift_backdrop_object() const;
 
