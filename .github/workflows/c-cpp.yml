@@ -86,7 +86,7 @@ jobs:
           sudo mkdir $GITHUB_WORKSPACE/rellxx
           sudo chown $USER:$GROUPS $GITHUB_WORKSPACE/rellxx
 
-      - uses: 
+      - uses: actions/download-artifact@v7
         with:
           name: ubuntu-24.04
           path: ${{ github.workspace }}/rellxx
