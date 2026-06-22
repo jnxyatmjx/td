@@ -28,7 +28,7 @@ jobs:
     steps:
     # This step references the directory that contains the action.
     # This step checks out a copy of your repository.
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
           # by default, it uses a depth of 1
           # this fetches all history so that we can read each commit
@@ -75,7 +75,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: true
@@ -86,12 +86,12 @@ jobs:
           sudo mkdir $GITHUB_WORKSPACE/rellxx
           sudo chown $USER:$GROUPS $GITHUB_WORKSPACE/rellxx
 
-      - uses: actions/download-artifact@v6
+      - uses: 
         with:
           name: ubuntu-24.04
           path: ${{ github.workspace }}/rellxx
 
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v7
         with:
           name: ubuntu-22.04
           path: ${{ github.workspace }}/rellxx
