@@ -28,6 +28,7 @@
 
 #include "td/actor/PromiseFuture.h"
 
+#include "td/utils/Action.h"
 #include "td/utils/algorithm.h"
 #include "td/utils/as.h"
 #include "td/utils/format.h"
@@ -58,17 +59,17 @@ class SemaphoreActor final : public Actor {
   explicit SemaphoreActor(size_t capacity) : capacity_(capacity) {
   }
 
-  void execute(Promise<Promise<Unit>> promise) {
+  void execute(Action<void(Promise<Unit>)> action) {
     if (capacity_ == 0) {
-      pending_.push(std::move(promise));
+      pending_.push(std::move(action));
     } else {
-      start(std::move(promise));
+      start(std::move(action));
     }
   }
 
  private:
   size_t capacity_;
-  VectorQueue<Promise<Promise<Unit>>> pending_;
+  VectorQueue<Action<void(Promise<Unit>)>> pending_;
 
   void finish(Result<Unit>) {
     capacity_++;
@@ -77,10 +78,10 @@ class SemaphoreActor final : public Actor {
     }
   }
 
-  void start(Promise<Promise<Unit>> promise) {
+  void start(Action<void(Promise<Unit>)> action) {
     CHECK(capacity_ > 0);
     capacity_--;
-    promise.set_value(promise_send_closure(actor_id(this), &SemaphoreActor::finish));
+    action(promise_send_closure(actor_id(this), &SemaphoreActor::finish));
   }
 };
 
@@ -89,8 +90,8 @@ struct Semaphore {
     semaphore_ = create_actor<SemaphoreActor>("Semaphore", capacity).release();
   }
 
-  void execute(Promise<Promise<Unit>> promise) {
-    send_closure(semaphore_, &SemaphoreActor::execute, std::move(promise));
+  void execute(Action<void(Promise<Unit>)> action) {
+    send_closure(semaphore_, &SemaphoreActor::execute, std::move(action));
   }
 
  private:
@@ -163,15 +164,13 @@ class GenAuthKeyActor final : public Actor {
   void start_up() final {
     // Bug in Android clang and MSVC
     // std::tuple<Result<int>> b(std::forward_as_tuple(Result<int>()));
-    get_handshake_semaphore().execute(promise_send_closure(actor_id(this), &GenAuthKeyActor::do_start_up));
+    get_handshake_semaphore().execute([actor_id = actor_id(this)](Promise<Unit> &&finish_promise) {
+      send_closure(actor_id, &GenAuthKeyActor::do_start_up, std::move(finish_promise));
+    });
   }
 
-  void do_start_up(Result<Promise<Unit>> r_finish_promise) {
-    if (r_finish_promise.is_error()) {
-      LOG(ERROR) << "Unexpected error: " << r_finish_promise.error();
-    } else {
-      finish_promise_ = r_finish_promise.move_as_ok();
-    }
+  void do_start_up(Promise<Unit> &&finish_promise) {
+    finish_promise_ = std::move(finish_promise);
     callback_->request_raw_connection(
         nullptr, PromiseCreator::cancellable_lambda(
                      cancellation_token_source_.get_cancellation_token(),
@@ -873,10 +872,10 @@ Status Session::on_message_result_ok(mtproto::MessageId message_id, BufferSlice 
   last_success_timestamp_ = Time::now();
 
   TlParser parser(packet.as_slice());
-  int32 response_tl_id = parser.fetch_int();
 
   auto it = sent_queries_.find(message_id);
   if (it == sent_queries_.end()) {
+    int32 response_tl_id = parser.fetch_int();
     LOG(DEBUG) << "Drop result to " << message_id << tag("original_size", original_size)
                << tag("response_tl", format::as_hex(response_tl_id));
 
@@ -896,9 +895,10 @@ Status Session::on_message_result_ok(mtproto::MessageId message_id, BufferSlice 
   Query &query = it->second;
   VLOG(net_query) << "Return query result " << query.net_query_;
 
-  if (!parser.get_error()) {
+  if (!parser.get_error() && !auth_data_.get_auth_flag() && !is_cdn_) {
     // Steal authorization information.
     // It is a dirty hack, yep.
+    int32 response_tl_id = parser.fetch_int();
     if (response_tl_id == telegram_api::auth_authorization::ID ||
         response_tl_id == telegram_api::auth_loginTokenSuccess::ID ||
         response_tl_id == telegram_api::auth_sentCodeSuccess::ID) {
@@ -933,7 +933,7 @@ void Session::on_message_result_error(mtproto::MessageId message_id, int error_c
 
   // UNAUTHORIZED
   if (error_code == 401 && message != "SESSION_PASSWORD_NEEDED") {
-    if (auth_data_.use_pfs() && message == CSlice("AUTH_KEY_PERM_EMPTY")) {
+    if (auth_data_.use_pfs() && message == Slice("AUTH_KEY_PERM_EMPTY")) {
       LOG(INFO) << "Receive AUTH_KEY_PERM_EMPTY in session " << auth_data_.get_session_id() << " for auth key "
                 << auth_data_.get_tmp_auth_key().id();
       // temporary key can be dropped any time

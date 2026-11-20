@@ -15,6 +15,7 @@
 #include "td/telegram/files/FileLocation.h"
 #include "td/telegram/files/FileLocation.hpp"
 #include "td/telegram/Global.h"
+#include "td/telegram/InputMedia.h"
 #include "td/telegram/logevent/LogEvent.h"
 #include "td/telegram/misc.h"
 #include "td/telegram/SecureStorage.h"
@@ -1414,6 +1415,7 @@ string FileManager::get_file_name(FileType file_type, Slice path) {
     case FileType::SecureEncrypted:
     case FileType::SecureDecrypted:
     case FileType::CallLog:
+    case FileType::SpeechRecognitionAudio:
       break;
     default:
       UNREACHABLE();
@@ -1596,7 +1598,7 @@ bool FileManager::try_fix_partial_local_location(FileNodePtr node) {
   auto partial = node->local_.partial();
   if (!partial.iv_.empty()) {
     // can't recalc iv_
-    LOG(INFO) << "   failed - partial location has nonempty iv";
+    LOG(INFO) << "   failed - partial location has non-empty IV";
     return false;
   }
   if (partial.part_size_ >= 512 * (1 << 10) || (partial.part_size_ & (partial.part_size_ - 1)) != 0) {
@@ -2301,6 +2303,7 @@ Status FileManager::merge(FileId x_file_id, FileId y_file_id, bool no_sync) {
   auto file_view = FileView(node);
 
   LOG(DEBUG) << "Have x_node->pmc_id_ = " << x_node->pmc_id_.get() << ", y_node->pmc_id_ = " << y_node->pmc_id_.get()
+             << ", x_size = " << x_node->size_ << ", y_size = " << y_node->size_
              << ", x_node_size = " << x_node->file_ids_.size() << ", y_node_size = " << y_node->file_ids_.size()
              << ", node_i = " << node_i << ", local_i = " << local_i << ", remote_i = " << remote_i
              << ", generate_i = " << generate_i << ", size_i = " << size_i << ", remote_name_i = " << remote_name_i
@@ -2406,7 +2409,7 @@ Status FileManager::merge(FileId x_file_id, FileId y_file_id, bool no_sync) {
     context_->on_merge_files(node->main_file_id_, other_node->main_file_id_);
   }
 
-  bool send_updates_flag = false;
+  bool send_updates_flag = other_node->need_info_flush();
   auto other_pmc_id = other_node->pmc_id_;
   append(node->file_ids_, other_node->file_ids_);
 
@@ -2417,8 +2420,8 @@ Status FileManager::merge(FileId x_file_id, FileId y_file_id, bool no_sync) {
   }
   other_node = {};
 
+  // unsent changes of other_node would be lost with it, so they must be sent with node
   if (send_updates_flag) {
-    // node might not changed, but other_node might changed, so we need to send update anyway
     VLOG(update_file) << "File " << node->main_file_id_ << " has been merged";
     node->on_info_changed();
   }
@@ -2885,28 +2888,27 @@ void FileManager::read_file_part(FileId file_id, int64 offset, int64 count, int 
     is_partial = true;
   }
 
-  auto read_file_part_promise =
-      PromiseCreator::lambda([actor_id = actor_id(this), file_id, offset, count, left_tries, is_partial,
-                              promise = std::move(promise)](Result<string> r_bytes) mutable {
-        if (r_bytes.is_error()) {
-          LOG(INFO) << "Failed to read file bytes: " << r_bytes.error();
-          if (left_tries == 1 || !is_partial) {
-            return promise.set_error(400, "Failed to read the file");
-          }
+  auto read_file_part_promise = PromiseCreator::lambda([actor_id = actor_id(this), file_id, offset, count, left_tries,
+                                                        is_partial,
+                                                        promise = std::move(promise)](Result<string> r_bytes) mutable {
+    if (r_bytes.is_error()) {
+      LOG(INFO) << "Failed to read file bytes: " << r_bytes.error();
+      if (left_tries == 1 || !is_partial) {
+        return promise.set_error(400, "Failed to read the file");
+      }
 
-          // the temporary file could be moved from temp to persistent directory
-          // we need to wait for the corresponding update and repeat the reading
-          create_actor<SleepActor>("RepeatReadFilePartActor", 0.01,
-                                   PromiseCreator::lambda([actor_id, file_id, offset, count, left_tries,
-                                                           promise = std::move(promise)](Unit) mutable {
-                                     send_closure(actor_id, &FileManager::read_file_part, file_id, offset, count,
-                                                  left_tries - 1, std::move(promise));
-                                   }))
-              .release();
-        } else {
-          promise.set_value(r_bytes.move_as_ok());
-        }
-      });
+      // the temporary file could be moved from temp to persistent directory
+      // we need to wait for the corresponding update and repeat the reading
+      create_actor<SleepActor>("RepeatReadFilePartActor", 0.01,
+                               [actor_id, file_id, offset, count, left_tries, promise = std::move(promise)]() mutable {
+                                 send_closure(actor_id, &FileManager::read_file_part, file_id, offset, count,
+                                              left_tries - 1, std::move(promise));
+                               })
+          .release();
+    } else {
+      promise.set_value(r_bytes.move_as_ok());
+    }
+  });
   send_closure(file_load_manager_, &FileLoadManager::read_file_part, *path, offset, count,
                std::move(read_file_part_promise));
 }
@@ -3042,29 +3044,49 @@ void FileManager::download(FileId file_id, int64 internal_download_id, std::shar
     callback->on_download_error(file_id, error.clone());
     return promise.set_error(std::move(error));
   }
+  if (internal_download_id != 0) {
+    pending_internal_download_generations_.erase(internal_download_id);
+  }
   if (node->local_.type() == LocalFileLocation::Type::Empty) {
     return download_impl(file_id, internal_download_id, std::move(callback), new_priority, offset, limit, Status::OK(),
-                         std::move(promise));
+                         0, std::move(promise));
+  }
+
+  uint64 download_generation = 0;
+  if (internal_download_id != 0) {
+    download_generation = ++current_internal_download_generation_;
+    pending_internal_download_generations_[internal_download_id] = download_generation;
   }
 
   LOG(INFO) << "Asynchronously check location of file " << file_id << " before downloading";
-  auto check_promise =
-      PromiseCreator::lambda([actor_id = actor_id(this), file_id, internal_download_id, callback = std::move(callback),
-                              new_priority, offset, limit, promise = std::move(promise)](Result<Unit> result) mutable {
+  auto check_promise = PromiseCreator::lambda(
+      [actor_id = actor_id(this), file_id, internal_download_id, callback = std::move(callback), new_priority, offset,
+       limit, download_generation, promise = std::move(promise)](Result<Unit> result) mutable {
         Status check_status;
         if (result.is_error()) {
           check_status = result.move_as_error();
         }
         send_closure(actor_id, &FileManager::download_impl, file_id, internal_download_id, std::move(callback),
-                     new_priority, offset, limit, std::move(check_status), std::move(promise));
+                     new_priority, offset, limit, std::move(check_status), download_generation, std::move(promise));
       });
   check_local_location_async(node, true, std::move(check_promise));
 }
 
 void FileManager::download_impl(FileId file_id, int64 internal_download_id, std::shared_ptr<DownloadCallback> callback,
                                 int32 new_priority, int64 offset, int64 limit, Status check_status,
-                                Promise<td_api::object_ptr<td_api::file>> promise) {
+                                uint64 download_generation, Promise<td_api::object_ptr<td_api::file>> promise) {
   TRY_STATUS_PROMISE(promise, G()->close_status());
+
+  if (download_generation != 0) {
+    auto it = pending_internal_download_generations_.find(internal_download_id);
+    if (it == pending_internal_download_generations_.end() || it->second != download_generation) {
+      LOG(INFO) << "Skip canceled download of file " << file_id << " with internal identifier " << internal_download_id;
+      auto error = Status::Error(200, "Canceled");
+      callback->on_download_error(file_id, error.clone());
+      return promise.set_error(std::move(error));
+    }
+    pending_internal_download_generations_.erase(it);
+  }
 
   LOG(INFO) << "Download file " << file_id << " with priority " << new_priority << " and internal identifier "
             << internal_download_id;
@@ -3168,6 +3190,10 @@ void FileManager::finish_downloads(FileId file_id, const Status &status) {
 void FileManager::cancel_download(FileId file_id, int64 internal_download_id, bool only_if_pending) {
   if (G()->close_flag()) {
     return;
+  }
+
+  if (internal_download_id != 0) {
+    pending_internal_download_generations_.erase(internal_download_id);
   }
 
   auto node = get_sync_file_node(file_id);
@@ -3606,6 +3632,22 @@ bool FileManager::delete_partial_remote_location(FileUploadId file_upload_id) {
   return true;
 }
 
+void FileManager::delete_partial_remote_location_if_needed(FileUploadId file_upload_id, bool was_uploaded) {
+  if (was_uploaded) {
+    CHECK(file_upload_id.is_valid());
+    delete_partial_remote_location(file_upload_id);
+  }
+}
+
+void FileManager::delete_partial_remote_location_if_needed(const vector<FileUploadId> &file_upload_ids,
+                                                           bool was_uploaded) {
+  if (was_uploaded) {
+    CHECK(file_upload_ids.size() == 1u);
+    CHECK(file_upload_ids[0].is_valid());
+    delete_partial_remote_location(file_upload_ids[0]);
+  }
+}
+
 void FileManager::delete_partial_remote_location_if_needed(FileUploadId file_upload_id, const Status &error) {
   if (error.code() != 429 && error.code() < 500 && !G()->close_flag()) {
     delete_partial_remote_location(file_upload_id);
@@ -3964,11 +4006,17 @@ void FileManager::cancel_upload(FileUploadId file_upload_id) {
   try_flush_node(node, "cancel_upload");
 }
 
+void FileManager::cancel_uploads(const vector<FileUploadId> &file_upload_ids) {
+  for (const auto &file_upload_id : file_upload_ids) {
+    cancel_upload(file_upload_id);
+  }
+}
+
 static bool is_background_type(FileType type) {
   return type == FileType::Wallpaper || type == FileType::Background;
 }
 
-Result<FileId> FileManager::from_persistent_id(CSlice persistent_id, FileType file_type) {
+Result<FileId> FileManager::from_persistent_id(Slice persistent_id, FileType file_type) {
   if (persistent_id.find('.') != string::npos) {
     auto r_http_url = parse_url(persistent_id);
     if (r_http_url.is_error()) {
@@ -4187,7 +4235,7 @@ Result<FileId> FileManager::get_input_thumbnail_file_id(const tl_object_ptr<td_a
 
 Result<FileId> FileManager::get_input_file_id(FileType type, const tl_object_ptr<td_api::InputFile> &file,
                                               DialogId owner_dialog_id, bool allow_zero, bool is_encrypted,
-                                              bool get_by_hash, bool is_secure, bool force_reuse) {
+                                              bool get_by_hash, bool is_secure, bool force_reuse, bool never_reuse) {
   if (file == nullptr) {
     if (allow_zero) {
       return FileId();
@@ -4210,7 +4258,7 @@ Result<FileId> FileManager::get_input_file_id(FileType type, const tl_object_ptr
         }
         string hash;
         if (G()->get_option_boolean("reuse_uploaded_photos_by_hash") &&
-            get_main_file_type(new_type) == FileType::Photo) {
+            get_main_file_type(new_type) == FileType::Photo && !never_reuse) {
           auto r_stat = stat(path);
           if (r_stat.is_ok() && r_stat.ok().size_ > 0 && r_stat.ok().size_ < 11000000) {
             auto r_file_content = read_file_str(path, r_stat.ok().size_);
@@ -4250,13 +4298,22 @@ Result<FileId> FileManager::get_input_file_id(FileType type, const tl_object_ptr
       }
       case td_api::inputFileId::ID: {
         FileId file_id(static_cast<const td_api::inputFileId *>(file.get())->id_, 0);
+        if (never_reuse) {
+          return Status::Error(400, "Can't use inputFileId");
+        }
         if (!file_id.is_valid()) {
+          if (!allow_zero) {
+            return Status::Error(400, "InputFile is not specified");
+          }
           return FileId();
         }
         return file_id;
       }
       case td_api::inputFileRemote::ID: {
         const string &file_persistent_id = static_cast<const td_api::inputFileRemote *>(file.get())->id_;
+        if (never_reuse) {
+          return Status::Error(400, "Can't use inputFileRemote");
+        }
         if (allow_zero && file_persistent_id.empty()) {
           return FileId();
         }
@@ -5154,7 +5211,7 @@ void FileManager::on_download_error_impl(FileNodePtr node, DownloadQuery::Type t
         !begins_with(status.message(), "FILE_DOWNLOAD_ID_INVALID") &&
         !begins_with(status.message(), "FILE_DOWNLOAD_LIMIT")) {
       // Remove partial location
-      CSlice path = node->local_.partial().path_;
+      Slice path = node->local_.partial().path_;
       if (begins_with(path, get_files_temp_dir(FileType::SecureDecrypted)) ||
           begins_with(path, get_files_temp_dir(FileType::Video))) {
         LOG(INFO) << "Unlink file " << path;

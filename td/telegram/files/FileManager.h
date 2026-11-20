@@ -19,7 +19,6 @@
 #include "td/telegram/files/FileType.h"
 #include "td/telegram/files/FileUploadId.h"
 #include "td/telegram/files/FileUploadManager.h"
-#include "td/telegram/InputMedia.h"
 #include "td/telegram/Location.h"
 #include "td/telegram/PhotoSizeSource.h"
 #include "td/telegram/td_api.h"
@@ -54,6 +53,7 @@ extern int VERBOSITY_NAME(update_file);
 
 class FileData;
 class FileDbInterface;
+struct InputMedia;
 
 enum class FileLocationSource : int8 { None, FromUser, FromBinlog, FromDatabase, FromServer };
 
@@ -538,7 +538,13 @@ class FileManager final : public Actor {
 
   void cancel_upload(FileUploadId file_upload_id);
 
+  void cancel_uploads(const vector<FileUploadId> &file_upload_ids);
+
   bool delete_partial_remote_location(FileUploadId file_upload_id);
+
+  void delete_partial_remote_location_if_needed(FileUploadId file_upload_id, bool was_uploaded);
+
+  void delete_partial_remote_location_if_needed(const vector<FileUploadId> &file_upload_ids, bool was_uploaded);
 
   void delete_partial_remote_location_if_needed(FileUploadId file_upload_id, const Status &error);
 
@@ -560,7 +566,7 @@ class FileManager final : public Actor {
                                        Promise<> promise);
   void external_file_generate_finish(int64 generation_id, Status status, Promise<> promise);
 
-  Result<FileId> from_persistent_id(CSlice persistent_id, FileType file_type) TD_WARN_UNUSED_RESULT;
+  Result<FileId> from_persistent_id(Slice persistent_id, FileType file_type) TD_WARN_UNUSED_RESULT;
   FileView get_file_view(FileId file_id) const;
   FileView get_sync_file_view(FileId file_id);
   td_api::object_ptr<td_api::file> get_file_object(FileId file_id);
@@ -570,8 +576,8 @@ class FileManager final : public Actor {
                                              DialogId owner_dialog_id, bool is_encrypted) TD_WARN_UNUSED_RESULT;
   Result<FileId> get_input_file_id(FileType type, const tl_object_ptr<td_api::InputFile> &file,
                                    DialogId owner_dialog_id, bool allow_zero, bool is_encrypted,
-                                   bool get_by_hash = false, bool is_secure = false,
-                                   bool force_reuse = false) TD_WARN_UNUSED_RESULT;
+                                   bool get_by_hash = false, bool is_secure = false, bool force_reuse = false,
+                                   bool never_reuse = false) TD_WARN_UNUSED_RESULT;
 
   Result<FileId> get_map_thumbnail_file_id(Location location, int32 zoom, int32 width, int32 height, int32 scale,
                                            DialogId owner_dialog_id) TD_WARN_UNUSED_RESULT;
@@ -848,6 +854,9 @@ class FileManager final : public Actor {
   };
   FlatHashMap<FileId, FileDownloadRequests, FileIdHash> file_download_requests_;
 
+  FlatHashMap<int64, uint64> pending_internal_download_generations_;
+  uint64 current_internal_download_generation_ = 0;
+
   struct FileUploadInfo {
     int8 upload_priority_{0};
     uint64 upload_order_{0};
@@ -915,7 +924,7 @@ class FileManager final : public Actor {
   void on_user_file_download_finished(FileId file_id);
 
   void download_impl(FileId file_id, int64 internal_download_id, std::shared_ptr<DownloadCallback> callback,
-                     int32 new_priority, int64 offset, int64 limit, Status check_status,
+                     int32 new_priority, int64 offset, int64 limit, Status check_status, uint64 download_generation,
                      Promise<td_api::object_ptr<td_api::file>> promise);
 
   std::shared_ptr<DownloadCallback> extract_download_callback(FileId file_id, int64 internal_download_id);
